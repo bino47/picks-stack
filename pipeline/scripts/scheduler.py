@@ -149,14 +149,15 @@ def board_bets():
             'start': _esb_iso(o.get('time')),
             'note': 'model %.1f%% EV %+.1f%%' % (100 * (o.get('model_p') or 0), 100 * (o.get('ev') or 0)),
             'armed': True, 'book': 'FanDuel', 'line': '', 'legs': []})
-    # NBA model book: upcoming card entries the model flagged (skip past games)
+    # NBA: mirror ALL upcoming singles from the user's own board, with the
+    # observer's verdict attached (armed = in the profitable >=64% band).
     try:
         card = json.load(open(os.path.join(HIST, 'history', 'scored_card.json')))
     except Exception:
         card = {}
     nba_cands = []
     for c in card.get('card', []):
-        if not c.get('bet') or c.get('league') != 'nba':
+        if c.get('league') != 'nba':
             continue
         m = re.match(r'^(\d{4})_(\d{2})_(\d{2})T(\d{2})_(\d{2})', c.get('key') or '')
         if not m:
@@ -178,14 +179,18 @@ def board_bets():
         if sig not in best or dec > best[sig][0]:
             best[sig] = (dec, c, start)
     for dec, c, start in best.values():
+        rec = bool(c.get('bet'))
         bets.append({
             'key': c.get('key'), 'kind': 'nba', 'league': 'nba',
             'match': c.get('match'), 'ga': (c.get('match') or '').split(' v ')[0],
             'gb': (c.get('match') or ' v ').split(' v ')[1] if ' v ' in (c.get('match') or '') else '',
             'market': c.get('market'), 'side': c.get('side'),
             'price': c.get('price'), 'stake': None, 'start': c.get('key', '').replace('_', '-'),
-            'note': 'model %s%% EV %s%%' % (c.get('model_win'), c.get('ev')),
-            'armed': True, 'book': 'FanDuel', 'line': '', 'legs': []})
+            'note': 'observer: model %.1f%% EV %s%% -> %s' % (
+                float(c.get('model_win') or 0), c.get('ev'),
+                'BET (profitable band)' if rec else 'skip (below 64%% band)'),
+            'armed': rec, 'why': '' if rec else 'observer model: below the 64%% band',
+            'book': 'FanDuel', 'line': '', 'legs': []})
     return bets, partner
 
 
