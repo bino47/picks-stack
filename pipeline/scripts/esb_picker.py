@@ -250,6 +250,24 @@ def settle():
         r.update({'status': 'win' if win else 'loss', 'pnl': pnl, 'final': f'{hs}-{as_}'})
         n_settled += 1
         out.append(r)
+    # expire ancient open picks: games long past that BetsAPI's ended pages
+    # no longer return can never settle — mark them so the board stops showing them
+    now_ts = time.time()
+    changed = False
+    kept = []
+    for r in out:
+        if r['status'] == 'open' and r.get('time'):
+            try:
+                if int(r['time']) < now_ts - 36 * 3600:
+                    r['status'] = 'expired_unmatched'
+                    r['pnl'] = 0.0
+                    changed = True
+            except Exception:
+                pass
+        kept.append(r)
+    out = kept
+    if changed:
+        n_settled += sum(1 for r in out if r['status'] == 'expired_unmatched')
     with open(LEDGER, 'w', encoding='utf-8') as f:
         for r in out:
             f.write(json.dumps(r) + '\n')

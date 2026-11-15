@@ -10,7 +10,7 @@ Web endpoints (for the local boards / any viewer to pull):
   GET /          status page
   GET /data      {esb_ledger, model_sb_ledger, kalshi state}
 """
-import json, os, subprocess, sys, threading, time, datetime as dt
+import json, os, re, subprocess, sys, threading, time, datetime as dt
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -103,6 +103,13 @@ def board_bets():
     for o in rows:
         if o.get('status') != 'open':
             continue
+        # only show games that haven't started yet (stale picks expire, not display)
+        try:
+            st_ts = int(o.get('time') or 0)
+            if st_ts and st_ts < time.time():
+                continue
+        except Exception:
+            pass
         key = 'esb:%s:%s' % (o.get('event_id'), (o.get('side') or '').strip())
         bets.append({
             'key': key, 'kind': 'esb', 'league': o.get('league'),
@@ -113,13 +120,20 @@ def board_bets():
             'start': _esb_iso(o.get('time')),
             'note': 'model %.1f%% EV %+.1f%%' % (100 * (o.get('model_p') or 0), 100 * (o.get('ev') or 0)),
             'armed': True, 'book': 'FanDuel', 'line': '', 'legs': []})
-    # NBA model book: upcoming card entries the model flagged
+    # NBA model book: upcoming card entries the model flagged (skip past games)
     try:
         card = json.load(open(os.path.join(HIST, 'history', 'scored_card.json')))
     except Exception:
         card = {}
     for c in card.get('card', []):
         if not c.get('bet') or c.get('league') != 'nba':
+            continue
+        m = re.match(r'^(\d{4})_(\d{2})_(\d{2})T(\d{2})_(\d{2})', c.get('key') or '')
+        if not m:
+            continue
+        start = dt.datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)),
+                            int(m.group(4)), int(m.group(5)), tzinfo=dt.timezone.utc)
+        if start < dt.datetime.now(dt.timezone.utc):
             continue
         bets.append({
             'key': c.get('key'), 'kind': 'nba', 'league': 'nba',
