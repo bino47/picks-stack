@@ -23,7 +23,34 @@ JOBS = [
     ('esb_cycle', 600, 'esb_cycle.py', []),
     ('model_book', 600, 'model_sb_paper.py', []),
     ('kalshi_recorder', 7200, 'kalshi_esports_recorder.py', []),
+    ('scorer_cycle', 600, '', []),
 ]
+
+def scorer_cycle():
+    """Refresh H2H GG results, then re-score the source board's live card.
+
+    Env notes: h2hggl_recorder reads SCORER_HISTORY_DIR/real_games.json, so it
+    gets $HIST/history; source_observer reads $SCORER_DATA_ROOT/history/*, so it
+    gets SCORER_DATA_ROOT=$HIST. Both converge on the files the model books read.
+    """
+    env = dict(os.environ,
+               SCORER_HISTORY_DIR=os.path.join(HIST, 'history'),
+               SCORER_DATA_ROOT=HIST,
+               PYTHONPATH='', PYTHONHOME='')
+    for script, args in (('h2hggl_recorder.py', ['--days', '3']),
+                         ('source_observer.py', ['--live'])):
+        try:
+            r = subprocess.run([PY, '-I', os.path.join(HERE, 'scorer', script)] + args,
+                               capture_output=True, text=True, timeout=280, env=env)
+            out = (r.stdout or '').strip()
+            print(f'[scorer:{script}] rc={r.returncode} {out[:400]}', flush=True)
+            if r.returncode == 0:
+                _last_ok['scorer_cycle'] = dt.datetime.utcnow().isoformat() + 'Z'
+            elif r.stderr:
+                print(f'[scorer:{script}] ERR {r.stderr[-500:]}', flush=True)
+        except Exception as e:
+            print(f'[scorer:{script}] EXC {e}', flush=True)
+        time.sleep(2)
 _running = {}
 _last_ok = {}
 
@@ -65,6 +92,8 @@ def loop():
             due = (time.time() - t0) % interval < 60 or (name not in _last_ok and _last_ok.get('_boot') is None)
             if name == 'esb_cycle' and due:
                 threading.Thread(target=esb_cycle, daemon=True).start()
+            elif name == 'scorer_cycle' and due:
+                threading.Thread(target=scorer_cycle, daemon=True).start()
             elif due and not _running.get(name):
                 threading.Thread(target=run_job, args=(name, script, args), daemon=True).start()
         time.sleep(55)
