@@ -19,5 +19,8 @@ if [ -d "$ROOT/seed" ]; then
     [ -e "$DEST" ] || cp "$f" "$DEST"
   done
 fi
+# the trained scorer model must exist in the data dir for --live scoring
+[ -e "$DATA_ROOT/history/source_model.json" ] || \
+  cp "$ROOT/scripts/scorer/source_model.json" "$DATA_ROOT/history/source_model.json" 2>/dev/null || true
 pip install --quiet numpy
 exec python "$ROOT/scripts/scheduler.py"

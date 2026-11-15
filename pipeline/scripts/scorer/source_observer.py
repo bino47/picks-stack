@@ -104,6 +104,8 @@ def build_dataset():
             if t and sum(g["score"]) >= 45:
                 real_by_pair[tuple(g["aliases"])].append((t, g))
     records = []
+    if not os.path.exists(REGISTRY):
+        return records   # no registry yet (fresh host): scoring still works with the frozen model
     with open(REGISTRY, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
