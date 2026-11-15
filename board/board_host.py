@@ -48,6 +48,9 @@ SCRYPT_N, SCRYPT_R, SCRYPT_P = 2 ** 14, 8, 1
 # ---------------- db ----------------
 
 def db():
+    d = os.path.dirname(DB_PATH)
+    if d and not os.path.exists(d):
+        os.makedirs(d, exist_ok=True)
     c = sqlite3.connect(DB_PATH)
     c.row_factory = sqlite3.Row
     return c
