@@ -87,6 +87,14 @@ def _esb_iso(ts):
 
 def board_bets():
     bets = []
+    # partner profile: live bankrolls from the books (the board header reads these)
+    try: nba_br = json.load(open(os.path.join(HERE, 'model_paper_state.json'))).get('bankroll_now', 1000.0)
+    except Exception: nba_br = 1000.0
+    try: fifa_br = json.load(open(os.path.join(HIST, 'esb_paper_state.json'))).get('bankroll', 1000.0)
+    except Exception: fifa_br = 1000.0
+    partner = {"id": "model", "name": "The Model",
+               "bankroll": round(nba_br, 2), "fifaBankroll": round(fifa_br, 2),
+               "nflBankroll": 0, "cap": round(0.025 * fifa_br, 2)}
     # ESB soccer paper picks (open) — key must match /graded keys exactly
     try:
         rows = [json.loads(x) for x in (read(os.path.join(HIST, 'esb_paper_ledger.jsonl')) or '').splitlines() if x.strip()]
@@ -99,11 +107,12 @@ def board_bets():
         bets.append({
             'key': key, 'kind': 'esb', 'league': o.get('league'),
             'match': '%s v %s' % (o.get('home'), o.get('away')),
+            'ga': o.get('home'), 'gb': o.get('away'),
             'market': o.get('market'), 'side': o.get('side'),
             'price': o.get('price_am'), 'stake': o.get('stake'),
             'start': _esb_iso(o.get('time')),
             'note': 'model %.1f%% EV %+.1f%%' % (100 * (o.get('model_p') or 0), 100 * (o.get('ev') or 0)),
-            'armed': True, 'book': 'BetsAPI odds'})
+            'armed': True, 'book': 'FanDuel', 'line': '', 'legs': []})
     # NBA model book: upcoming card entries the model flagged
     try:
         card = json.load(open(os.path.join(HIST, 'history', 'scored_card.json')))
@@ -114,11 +123,13 @@ def board_bets():
             continue
         bets.append({
             'key': c.get('key'), 'kind': 'nba', 'league': 'nba',
-            'match': c.get('match'), 'market': c.get('market'), 'side': c.get('side'),
+            'match': c.get('match'), 'ga': (c.get('match') or '').split(' v ')[0],
+            'gb': (c.get('match') or ' v ').split(' v ')[1] if ' v ' in (c.get('match') or '') else '',
+            'market': c.get('market'), 'side': c.get('side'),
             'price': c.get('price'), 'stake': None, 'start': c.get('key', '').replace('_', '-'),
             'note': 'model %s%% EV %s%%' % (c.get('model_win'), c.get('ev')),
-            'armed': True, 'book': 'card'})
-    return bets
+            'armed': True, 'book': 'FanDuel', 'line': '', 'legs': []})
+    return bets, partner
 
 
 def graded_rows():
@@ -153,9 +164,13 @@ class H(BaseHTTPRequestHandler):
             self.send_header('Content-Type', 'application/json')
             self.send_header('Cache-Control', 'no-store')
         elif self.path == '/board':
+            bets, partner = board_bets()
             body = json.dumps({'at': dt.datetime.utcnow().isoformat() + 'Z',
-                               'live': True, 'why': '', 'title': 'Picks pipeline',
-                               'bets': board_bets()}).encode()
+                               'live': True, 'why': '', 'title': 'Picks board — The Model',
+                               'checkedAt': dt.datetime.utcnow().isoformat() + 'Z',
+                               'partner': partner, 'model': partner,
+                               'partners': [partner], 'liveBankroll': {},
+                               'bets': bets}).encode()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Cache-Control', 'no-store')
