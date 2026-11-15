@@ -154,6 +154,7 @@ def board_bets():
         card = json.load(open(os.path.join(HIST, 'history', 'scored_card.json')))
     except Exception:
         card = {}
+    nba_cands = []
     for c in card.get('card', []):
         if not c.get('bet') or c.get('league') != 'nba':
             continue
@@ -164,6 +165,19 @@ def board_bets():
                             int(m.group(4)), int(m.group(5)), tzinfo=dt.timezone.utc)
         if start < dt.datetime.now(dt.timezone.utc):
             continue
+        nba_cands.append((c, start))
+    # collapse book mirrors: same pick posted at 2-3 books -> keep the BEST price
+    best = {}
+    for c, start in nba_cands:
+        try:
+            dec = 1 + (float(c.get('price')) / 100.0 if float(c.get('price')) > 0
+                       else 100.0 / abs(float(c.get('price'))))
+        except (TypeError, ValueError):
+            dec = 0
+        sig = (c.get('match'), (c.get('side') or '').strip().upper(), start.strftime('%Y%m%dT%H%M'))
+        if sig not in best or dec > best[sig][0]:
+            best[sig] = (dec, c, start)
+    for dec, c, start in best.values():
         bets.append({
             'key': c.get('key'), 'kind': 'nba', 'league': 'nba',
             'match': c.get('match'), 'ga': (c.get('match') or '').split(' v ')[0],
