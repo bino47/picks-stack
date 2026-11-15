@@ -1,0 +1,187 @@
+#!/usr/bin/env python
+"""scheduler.py — in-process scheduler + status server for the cloud host.
+
+Jobs (running-flag guarded, never overlap):
+  esb_cycle      every 10 min: backfill (delta) -> picker pick -> settle -> report
+  model_book     every 10 min: model sportsbook paper book pick+settle
+  kalshi_recorder every 2h:   Kalshi esports quotes/settlements sweep
+
+Web endpoints (for the local boards / any viewer to pull):
+  GET /          status page
+  GET /data      {esb_ledger, model_sb_ledger, kalshi state}
+"""
+import json, os, subprocess, sys, threading, time, datetime as dt
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+HIST = os.environ.get('SCORER_HISTORY_DIR', os.path.join(HERE, 'data'))
+PY = sys.executable
+os.makedirs(HIST, exist_ok=True)
+
+JOBS = [
+    # (name, interval_s, script, args)
+    ('esb_cycle', 600, 'esb_cycle.py', []),
+    ('model_book', 600, 'model_sb_paper.py', []),
+    ('kalshi_recorder', 7200, 'kalshi_esports_recorder.py', []),
+]
+_running = {}
+_last_ok = {}
+
+
+def run_job(name, script, args):
+    if _running.get(name):
+        return
+    _running[name] = True
+    try:
+        r = subprocess.run([PY, '-I', os.path.join(HERE, script)] + args,
+                           capture_output=True, text=True, timeout=280,
+                           env=dict(os.environ, SCORER_HISTORY_DIR=HIST,
+                                    BETSAPI_KEY=os.environ.get('BETSAPI_KEY', ''),
+                                    PYTHONPATH='', PYTHONHOME=''))
+        out = (r.stdout or '').strip()
+        print(f'[{name}] rc={r.returncode} {out[:400]}', flush=True)
+        if r.returncode == 0:
+            _last_ok[name] = dt.datetime.utcnow().isoformat() + 'Z'
+        elif r.stderr:
+            print(f'[{name}] ERR {r.stderr[-500:]}', flush=True)
+    except Exception as e:
+        print(f'[{name}] EXC {e}', flush=True)
+    finally:
+        _running[name] = False
+
+
+def esb_cycle():
+    """backfill delta -> pick -> settle -> report, as one cycle."""
+    for script, args in (('esb_backfill.py', []), ('esb_picker.py', ['pick']),
+                         ('esb_picker.py', ['settle']), ('esb_picker.py', ['report'])):
+        run_job('esb:' + script, script, args)
+    _last_ok['esb_cycle'] = dt.datetime.utcnow().isoformat() + 'Z'
+
+
+def loop():
+    t0 = time.time()
+    while True:
+        for name, interval, script, args in JOBS:
+            due = (time.time() - t0) % interval < 60 or (name not in _last_ok and _last_ok.get('_boot') is None)
+            if name == 'esb_cycle' and due:
+                threading.Thread(target=esb_cycle, daemon=True).start()
+            elif due and not _running.get(name):
+                threading.Thread(target=run_job, args=(name, script, args), daemon=True).start()
+        time.sleep(55)
+
+
+def read(path):
+    try:
+        return open(path, encoding='utf-8').read()
+    except Exception:
+        return None
+
+
+# ---------- board shim: serve bets/graded in the hosted board's format ----------
+def _esb_iso(ts):
+    try:
+        return dt.datetime.fromtimestamp(int(ts), dt.timezone.utc).isoformat()
+    except Exception:
+        return ''
+
+
+def board_bets():
+    bets = []
+    # ESB soccer paper picks (open) — key must match /graded keys exactly
+    try:
+        rows = [json.loads(x) for x in (read(os.path.join(HIST, 'esb_paper_ledger.jsonl')) or '').splitlines() if x.strip()]
+    except Exception:
+        rows = []
+    for o in rows:
+        if o.get('status') != 'open':
+            continue
+        key = 'esb:%s:%s' % (o.get('event_id'), (o.get('side') or '').strip())
+        bets.append({
+            'key': key, 'kind': 'esb', 'league': o.get('league'),
+            'match': '%s v %s' % (o.get('home'), o.get('away')),
+            'market': o.get('market'), 'side': o.get('side'),
+            'price': o.get('price_am'), 'stake': o.get('stake'),
+            'start': _esb_iso(o.get('time')),
+            'note': 'model %.1f%% EV %+.1f%%' % (100 * (o.get('model_p') or 0), 100 * (o.get('ev') or 0)),
+            'armed': True, 'book': 'BetsAPI odds'})
+    # NBA model book: upcoming card entries the model flagged
+    try:
+        card = json.load(open(os.path.join(HIST, 'history', 'scored_card.json')))
+    except Exception:
+        card = {}
+    for c in card.get('card', []):
+        if not c.get('bet') or c.get('league') != 'nba':
+            continue
+        bets.append({
+            'key': c.get('key'), 'kind': 'nba', 'league': 'nba',
+            'match': c.get('match'), 'market': c.get('market'), 'side': c.get('side'),
+            'price': c.get('price'), 'stake': None, 'start': c.get('key', '').replace('_', '-'),
+            'note': 'model %s%% EV %s%%' % (c.get('model_win'), c.get('ev')),
+            'armed': True, 'book': 'card'})
+    return bets
+
+
+def graded_rows():
+    out = []
+    def rows(path):
+        try:
+            return [json.loads(x) for x in (read(path) or '').splitlines() if x.strip()]
+        except Exception:
+            return []
+    for o in rows(os.path.join(HIST, 'esb_paper_ledger.jsonl')):
+        if o.get('status') in ('win', 'loss', 'push'):
+            out.append({'key': 'esb:%s:%s' % (o.get('event_id'), (o.get('side') or '').strip()),
+                        'result': o['status'], 'pnl': o.get('pnl')})
+    for name in ('model_sb_ledger.jsonl', 'model_ledger.jsonl'):
+        for o in rows(os.path.join(HERE, name)):
+            if o.get('result') in ('win', 'loss', 'push') and o.get('key'):
+                out.append({'key': o['key'], 'result': o['result'], 'pnl': o.get('pnl')})
+    return out
+
+
+class H(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/data':
+            body = json.dumps({
+                'at': dt.datetime.utcnow().isoformat() + 'Z',
+                'esb_ledger': read(os.path.join(HIST, 'esb_paper_ledger.jsonl')),
+                'esb_state': read(os.path.join(HIST, 'esb_paper_state.json')),
+                'model_sb_ledger': read(os.path.join(HERE, 'model_sb_ledger.jsonl')),
+                'kalshi_quotes_tail': read(os.path.join(HIST, 'kalshi_history', 'sweep_log.jsonl')),
+            }).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Cache-Control', 'no-store')
+        elif self.path == '/board':
+            body = json.dumps({'at': dt.datetime.utcnow().isoformat() + 'Z',
+                               'live': True, 'why': '', 'title': 'Picks pipeline',
+                               'bets': board_bets()}).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Cache-Control', 'no-store')
+        elif self.path == '/graded':
+            body = json.dumps(graded_rows()).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Cache-Control', 'no-store')
+        elif self.path == '/':
+            body = ('<h1>picks pipeline host</h1><pre>jobs: ' +
+                    json.dumps({k: v for k, v in _last_ok.items()}) +
+                    '</pre><a href="/data">/data</a>').encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html')
+        else:
+            self.send_response(404); self.end_headers(); return
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *a):
+        pass
+
+
+if __name__ == '__main__':
+    _last_ok['_boot'] = dt.datetime.utcnow().isoformat() + 'Z'
+    threading.Thread(target=loop, daemon=True).start()
+    port = int(os.environ.get('PORT', '10000'))
+    ThreadingHTTPServer(('0.0.0.0', port), H).serve_forever()

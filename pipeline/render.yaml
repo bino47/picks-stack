@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: picks-pipeline
+    runtime: python
+    plan: starter
+    buildCommand: pip install numpy
+    startCommand: bash ./start.sh
+    envVars:
+      - key: BETSAPI_KEY
+        sync: false   # set in the Render dashboard — NEVER commit the key
+      # SCORER_HISTORY_DIR is set by start.sh (= $DATA_ROOT); do not override here —
+      # model_paper_trader appends /history itself (double-history path bug, fixed 2026-11-14)
+    disk:
+      name: pipeline-data
+      mountPath: /var/data
+      sizeGB: 1

@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Picks board</title>
+<style>
+:root{--bg:#f3f1ea;--card:#fff;--ink:#16201a;--muted:#667068;--line:#e3dfd4;--soft:#f1eee6;
+--fd:#0b6fe0;--fdink:#fff;--ok:#1b7442;--okbg:#e2f1e7;--bad:#b42318;--badbg:#fbe8e6;
+--warn:#8a5a00;--warnbg:#fbf0d5;--chip:#ebe7dc;--shadow:0 1px 2px rgba(20,32,26,.06)}
+@media (prefers-color-scheme:dark){:root{--bg:#0e110f;--card:#171b18;--ink:#e7ece7;
+--muted:#97a198;--line:#28302a;--soft:#1c211d;--fd:#3b8fff;--ok:#5cc489;--okbg:#13281b;
+--bad:#ff8a7e;--badbg:#311714;--warn:#e7b44f;--warnbg:#2b2210;--chip:#222823;--shadow:none}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);
+font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+-webkit-text-size-adjust:100%}
+main{max-width:640px;margin:0 auto;padding:0 16px 48px}
+header{position:sticky;top:0;z-index:5;background:var(--bg);padding:12px 0 0}
+.hd{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+h1{font-size:19px;line-height:1.2;margin:0;font-weight:750;letter-spacing:-.01em}
+.sub{color:var(--muted);font-size:12.5px;margin-top:2px}
+.bank{text-align:right;white-space:nowrap}.bank b{font-size:17px;display:block}
+.bank span{color:var(--muted);font-size:11.5px}
+.livepnl{display:block;margin-top:4px;font-size:12px;font-weight:650;color:var(--muted)}
+.livepnl.pos{color:var(--ok)}.livepnl.neg{color:var(--bad)}
+.bankbox{margin:8px 0 0;text-align:right}.bankbox label{display:flex;align-items:center;justify-content:flex-end;gap:6px;font-size:12px;color:var(--muted)}
+.bankbox input{width:90px;padding:4px 6px;border:1px solid var(--line,#d8d4c8);border-radius:6px;background:var(--card,#fff);color:inherit;font:600 13px ui-monospace,Menlo,Consolas,monospace;text-align:right}
+.bankbox .subb{display:block;font-size:11px;color:var(--muted);margin-top:3px;min-height:14px}
+.amt .real{color:var(--muted);font-size:11px;font-weight:400;margin-left:3px}
+.boost{display:flex;align-items:center;justify-content:flex-end;gap:7px;margin-top:6px;font-size:12px;color:var(--muted);cursor:pointer;user-select:none}
+.boost input{width:auto;accent-color:var(--ok)}
+.status{display:flex;align-items:center;gap:7px;font-size:12.5px;margin:10px 0 0;
+padding:7px 10px;border-radius:8px;background:var(--soft);color:var(--muted)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.status.live .dot{background:var(--ok)}.status.down{background:var(--badbg);color:var(--bad)}
+.status.down .dot{background:var(--bad)}
+nav{display:flex;gap:4px;margin-top:10px;border-bottom:1px solid var(--line)}
+nav button{flex:1;background:none;border:0;border-bottom:2px solid transparent;color:var(--muted);
+font:inherit;font-weight:650;font-size:14px;padding:9px 4px 10px;cursor:pointer}
+nav button.on{color:var(--ink);border-bottom-color:var(--ink)}
+nav .n{display:inline-block;min-width:19px;padding:0 6px;margin-left:4px;border-radius:10px;
+background:var(--chip);font-size:12px;line-height:19px}
+nav button.on .n{background:var(--ink);color:var(--bg)}
+.sel{margin-top:8px;font-size:13px;color:var(--muted)}
+.sel select{font:inherit;padding:4px 6px;border-radius:6px;border:1px solid var(--line);
+background:var(--card);color:var(--ink)}.sel a{color:var(--fd);margin-left:8px}
+section{padding-top:12px}
+.note{font-size:12.5px;color:var(--muted);margin:2px 2px 12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;
+margin:0 0 12px;box-shadow:var(--shadow)}
+.card.off{opacity:.92}
+.when{display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted)}
+.when b{color:var(--ink);font-weight:650}.soon{color:var(--warn);font-weight:700}
+.match{font-size:17px;font-weight:750;margin-top:4px;letter-spacing:-.01em}
+.match i{font-style:normal;color:var(--muted);font-weight:500;font-size:14px;margin:0 3px}
+.fdn{font-size:12px;color:var(--muted);margin-top:1px}
+.legs{margin-top:8px}.leg{padding:7px 0;border-bottom:1px solid var(--line)}
+.leg:last-child{border-bottom:0}.leg .lt{display:flex;justify-content:space-between;gap:10px}
+.leg .lt b{font-size:15.5px}.leg .px{font-weight:650;font-variant-numeric:tabular-nums}
+.f.two{grid-template-columns:1fr 1fr}
+.pick{display:flex;align-items:center;gap:10px;margin:11px 0 0;padding:10px 12px;border-radius:9px;
+background:var(--soft)}
+.pick .mk{font-size:11px;font-weight:750;text-transform:uppercase;letter-spacing:.06em;
+color:var(--muted)}
+.pick .sd{font-size:16.5px;font-weight:750;flex:1}.pick .px{font-weight:650;font-variant-numeric:tabular-nums}
+.pick .amt{font-size:17px;font-weight:800;font-variant-numeric:tabular-nums}
+.why{margin-top:9px;font-size:12.5px;padding:7px 9px;border-radius:7px;background:var(--warnbg);
+color:var(--warn)}
+.row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:0 14px;
+border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit;
+font-weight:700;font-size:14px;text-decoration:none;cursor:pointer;flex:1}
+.btn.fd{background:var(--fd);border-color:var(--fd);color:var(--fdink)}
+.btn.mg{background:#b08d3c;border-color:#b08d3c;color:#fff}
+.btn.bga{background:#7a1f8f;border-color:#7a1f8f;color:#fff}
+.bk{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;padding:1px 7px;border-radius:9px;margin-left:6px;background:var(--chip);color:var(--ink)}
+.bk.mg{background:#b08d3c;color:#fff}
+.bk.bga{background:#7a1f8f;color:#fff}
+.bk.fb{background:#2f6b3a;color:#fff}
+.bk.sc{background:#5b3f9c;color:#fff}
+.btn.ok{background:var(--ok);border-color:var(--ok);color:#fff}
+.btn.ghost{color:var(--muted)}.btn[disabled]{opacity:.45;pointer-events:none}
+.btn.sm{min-height:32px;font-size:12.5px;padding:0 10px;flex:none}
+form.place{margin-top:10px;padding:12px;border-radius:9px;border:1px dashed var(--line)}
+.f{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.f label{font-size:11.5px;color:var(--muted);font-weight:650}
+.f input{width:100%;margin-top:3px;font:inherit;font-size:16px;padding:8px 9px;border-radius:7px;
+border:1px solid var(--line);background:var(--card);color:var(--ink)}
+.hint{font-size:12px;color:var(--muted);margin-top:8px}
+.empty{text-align:center;color:var(--muted);padding:36px 12px}
+.empty b{display:block;color:var(--ink);font-size:16px;margin-bottom:4px}
+.all{display:flex;gap:8px;align-items:center;margin:0 0 12px}
+.all .btn{flex:none}.all span{font-size:12px;color:var(--muted)}
+.item{display:flex;justify-content:space-between;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)}
+.item:last-child{border-bottom:0}.item .l{min-width:0}.item .t{font-weight:700}
+.item .s{font-size:12.5px;color:var(--muted)}.item .r{text-align:right;white-space:nowrap}
+.res{display:inline-block;font-size:11.5px;font-weight:800;padding:2px 8px;border-radius:10px;
+background:var(--chip);color:var(--muted)}
+.res.win{background:var(--okbg);color:var(--ok)}.res.loss{background:var(--badbg);color:var(--bad)}
+.pnl{font-weight:750;font-variant-numeric:tabular-nums;margin-top:3px}
+.pos{color:var(--ok)}.neg{color:var(--bad)}
+.model-tag{display:inline-block;margin-top:6px;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:650;background:rgba(127,127,127,.10);color:var(--muted)}
+.model-tag.good{background:rgba(35,180,90,.14);color:var(--ok)}
+.model-tag.bad{background:rgba(220,60,60,.12);color:var(--bad)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px}
+.stat .k{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.stat .v{font-size:18px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:2px}
+.stat .s{font-size:11.5px;color:var(--muted)}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:18px 2px 8px}
+table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+td,th{padding:7px 4px;border-bottom:1px solid var(--line);text-align:right}
+th{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase}
+td:first-child,th:first-child{text-align:left}
+#toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);max-width:92vw;z-index:9;
+background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:10px;font-size:13.5px;
+font-weight:600;box-shadow:0 4px 18px rgba(0,0,0,.25);display:none}
+#toast.bad{background:var(--bad);color:#fff}
+@media (max-width:380px){.f{grid-template-columns:1fr 1fr}.stats{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<main>
+<header>
+ <div class="hd"><div><h1 id="who">FanDuel board</h1><div class="sub" id="sub">eBasketball H2H &middot; FanDuel</div></div>
+ <div class="bank"><b id="bank">&nbsp;</b><span id="cap">&nbsp;</span><span id="livebk">&nbsp;</span>
+  <span id="livepnl" class="livepnl" title="Live P&amp;L on your placed bets, from real results">&nbsp;</span></div>
+  <div class="bankbox"><label>FanDuel bankroll ($)<input id="fdbank" inputmode="decimal" autocomplete="off" placeholder="enter to scale"></label>
+  <label>BetMGM bankroll ($)<input id="mgmbank" inputmode="decimal" autocomplete="off" placeholder="enter to scale"></label>
+  <label>Borgata bankroll ($)<input id="bgabank" inputmode="decimal" autocomplete="off" placeholder="enter to scale"></label>
+    <label class="boost"><input id="boost15" type="checkbox">×1.5 suggested bets</label>
+    <span id="scaleinfo" class="subb"></span></div></div>
+ <div id="status" class="status"><span class="dot"></span><span id="stxt">Loading&hellip;</span></div>
+ <div id="sel" class="sel" hidden></div>
+ <nav><button data-tab="bets" class="on">To place<span class="n" id="nb">0</span></button>
+ <button data-tab="placed">Placed<span class="n" id="np">0</span></button>
+ <button data-tab="record">Record</button></nav>
+</header>
+<section id="v-bets"></section>
+<section id="v-placed" hidden></section>
+<section id="v-record" hidden></section>
+</main><div id="toast"></div>
+<script>
+(function(){
+"use strict";
+var Q = new URLSearchParams(location.search), PID = Q.get("p");
+// The page lives under its secret link (/p/<token>/ or /a/<token>/); every call stays under it.
+var LM = location.pathname.match(/^\/(p|a)\/[A-Za-z0-9_-]+/), BASE = LM ? LM[0] : "";
+var QS = PID ? "?p=" + encodeURIComponent(PID) : "";
+var DATA = null, REC = null, TAB = "bets", OPEN = {}, EDIT = {}, BUSY = false, recAt = 0, LOCKED = null;
+var MYBANK_FD = null, MYBANK_MGM = null, MYBANK_BGA = null, BOOST15 = false;
+try { MYBANK_FD = localStorage.getItem("pb-fdbank"); } catch (e) {}
+try { MYBANK_MGM = localStorage.getItem("pb-mgmbank"); } catch (e) {}
+try { MYBANK_BGA = localStorage.getItem("pb-bgabank"); } catch (e) {}
+try { BOOST15 = localStorage.getItem("pb-boost15") === "1"; } catch (e) {}
+// Scale every displayed stake so the bet keeps the same EV *proportion* of the
+// bankroll. Source bankroll -> your bankroll; a $160 bet on a $7000 bankroll
+// becomes ~$2.29 on a $100 bankroll. Display only: the data and the maths are
+// untouched, and the "Amount accepted" field still lets you type the real one.
+// Bankroll scaler — ONE simple ratio. The suggested stake already has EV/sizing
+// baked in; the scaler just shrinks it to fit YOUR bankroll. ratio = mine / TOTAL,
+// where TOTAL = 7000 + 5000 = 12000 (the whole source pot, both sports).
+//   scaled = suggested * mine / 12000
+// At mine=1200: ratio=0.1 -> a $100 suggestion shows $10, a $500 shows $50.
+// Same ratio for EVERY number (basketball, soccer, everything). Display only.
+function totalPot(p){
+  return (Number(p && p.bankroll) || 0)
+       + (Number(p && p.fifaBankroll) || 0)
+       + (Number(p && p.nflBankroll) || 0);
+}
+// Scale by BOOK, not league. Each bet's suggested stake is shrunk by the bankroll
+// you stored for THAT book (FanDuel vs BetMGM vs Borgata), over the same total pot.
+function scaleFactor(b){
+  var total = totalPot(DATA && DATA.partner || {});
+  var book = b && b.book;
+  var mine = (book === "betmgm") ? (Number(MYBANK_MGM) || 0)
+           : (book === "borgata") ? (Number(MYBANK_BGA) || 0)
+           : (Number(MYBANK_FD) || 0);
+  if (!total || !mine || mine <= 0) return 1;
+  return mine / total;
+}
+function stake(b){
+  var s = (Number(b.stake) || 0) * scaleFactor(b);
+  if (BOOST15) s = s * 1.5;
+  return Math.round(s * 100) / 100;
+}
+// Show the scaled stake prominently, with the real source stake alongside when
+// scaling is active. When no bankroll is entered, just the real number.
+function stakeDisplay(b){
+  var real = Number(b.stake) || 0, scaled = stake(b);
+  if (scaled === real) return esc(usd(real));
+  return esc(usd(scaled)) + " <span class=\"real\">(" + esc(usd(real)) + ")</span>";
+}
+try { TAB = localStorage.getItem("pb-tab") || "bets"; } catch (e) {}
+function $(id){ return document.getElementById(id); }
+function esc(x){ return String(x == null ? "" : x).replace(/[&<>"']/g, function(c){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+function am(p){ p = Number(p); return isFinite(p) ? (p > 0 ? "+" + p : String(p)) : "?"; }
+function usd(x, cents){ x = Number(x || 0); var s = Math.abs(x).toFixed(cents ? 2 : 0);
+  s = s.replace(/\B(?=(\d{3})+(?!\d))/g, ","); return (x < 0 ? "-$" : "$") + s; }
+function signed(x){ x = Number(x || 0); return (x > 0 ? "+" : "") + usd(x, true); }
+function tm(iso){ try { return new Date(iso).toLocaleTimeString([], {hour:"numeric", minute:"2-digit"}); } catch (e) { return "?"; } }
+function day(iso){ try { return new Date(iso).toLocaleDateString([], {weekday:"short", month:"short", day:"numeric"}); } catch (e) { return ""; } }
+function mins(iso){ return Math.round((new Date(iso).getTime() - Date.now()) / 60000); }
+function toast(msg, bad){ var t = $("toast"); t.textContent = msg; t.className = bad ? "bad" : "";
+  t.style.display = "block"; clearTimeout(toast._t); toast._t = setTimeout(function(){ t.style.display = "none"; }, bad ? 6000 : 2600); }
+function typing(){ var a = document.activeElement; return a && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName); }
+
+function limitField(k, ed){
+  var checked = ed.limited != null ? ed.limited : OPEN[k] === "limited";
+  return "<label style=\"display:flex;align-items:center;gap:8px;margin-top:10px\"><input type=\"checkbox\" name=\"limited\" style=\"width:auto;margin:0\"" + (checked ? " checked" : "") + ">Book limited this bet</label>";
+}
+
+function head(){
+  var d = DATA, p = d.partner;
+  $("who").textContent = d.title || ((p.name || p.id) + "’s picks board");
+  document.title = d.title || "Picks board";
+  var fb = Number(p.nflBankroll || 0) > 0, sc = Number(p.fifaBankroll || 0) > 0, multi = fb || sc;
+  $("sub").innerHTML = "eBasketball" + (fb ? " + eFootball" : "") + (sc ? " + eSoccer" : "") + " H2H &middot; FanDuel";
+  $("bank").textContent = multi ? [usd(p.bankroll) + " basketball"].concat(fb ? [usd(p.nflBankroll) + " football"] : [], sc ? [usd(p.fifaBankroll) + " soccer"] : []).join(" · ") : usd(p.bankroll) + " bankroll";
+  $("cap").textContent = "max " + usd(p.cap) + (multi ? " a basketball bet" : " a bet");
+  var lb = $("livebk");
+  var lv = d.liveBankroll || {}, parts2 = [];
+  ["basketball","football","soccer"].forEach(function(lbl){
+    var key = {basketball:"nba", football:"nfl", soccer:"fifa"}[lbl], L = lv[key];
+    if (L) parts2.push("<b class=\"" + (L.pnl >= 0 ? "pos" : "neg") + "\">" + usd(L.h) + " " + lbl + "</b> <span class=\"" + (L.pnl >= 0 ? "pos" : "neg") + "\">(" + signed(L.pnl) + ')</span>');
+  });
+  if (lb) lb.innerHTML = parts2.length ? "<span class='live-tag'>LIVE:</span> " + parts2.join(" · ") : "";
+    var fd = $("fdbank"), mg = $("mgmbank"), bga = $("bgabank"), bst = $("boost15");
+    if (fd) fd.value = MYBANK_FD || "";
+    if (mg) mg.value = MYBANK_MGM || "";
+    if (bga) bga.value = MYBANK_BGA || "";
+    if (bst) bst.checked = !!BOOST15;
+    var si = $("scaleinfo"); if (si) {
+      var fdf = scaleFactor({book: "fanduel"}), mgf = scaleFactor({book: "betmgm"}), gf = scaleFactor({book: "borgata"});
+      var parts = [];
+      if (fdf !== 1) parts.push("FanDuel ×" + (Math.round(fdf * 100) / 100));
+      if (mgf !== 1) parts.push("BetMGM ×" + (Math.round(mgf * 100) / 100));
+      if (gf !== 1) parts.push("Borgata ×" + (Math.round(gf * 100) / 100));
+      if (BOOST15) parts.push("+×1.5");
+      si.textContent = parts.length ? "stakes scaled to your bankrolls (" + parts.join(", ") + ")" : (BOOST15 ? "×1.5 boost on" : "stakes shown at source size");
+    }
+  var s = $("status");
+  if (d.live) { s.className = "status live";
+    var td = d.today || {}, done = (td.w || 0) + (td.l || 0) + (td.p || 0), tx = "";
+    if (done) tx = " · today " + signed(td.pnl) + " (" + td.w + "-" + td.l + ")";
+    if (td.open) tx += (done ? ", " : " · today ") + td.open + " open";
+    $("stxt").textContent = "Live · checked " + tm(d.checkedAt) + tx; }
+  else { s.className = "status down"; $("stxt").textContent = multi
+    // d.live is the BASKETBALL board; football and soccer bets carry their own checks on each card
+    ? "Basketball paused: " + (d.why || "board not live") + ". Don’t place basketball bets until this says Live. " + (fb && sc ? "Football and soccer" : fb ? "Football" : "Soccer") + " bets are checked on their own."
+    : "Paused: " + (d.why || "board not live") + ". Don’t place bets until this says Live."; }
+  if (d.role === "admin" && d.partners) {
+    var sel = $("sel"); sel.hidden = false;
+    sel.innerHTML = "Viewing as Matt: <select id=\"psel\">" + d.partners.map(function(x){
+      return "<option value=\"" + esc(x.id) + "\"" + (x.id === p.id ? " selected" : "") + ">" + esc(x.name) + "</option>"; }).join("")
+      + "</select><a href=\"" + BASE + "/admin" + (PID ? QS : "?p=" + encodeURIComponent(p.id)) + "\">Tracking &rarr;</a>";
+    $("psel").onchange = function(){ location.search = "?p=" + encodeURIComponent(this.value); };
+  }
+}
+
+function modelTag(b){
+  // Advisory only — shows the observer model's projection + EV for this pick.
+  // It never changes the amount, odds or whether the bet is placeable.
+  var M = DATA && DATA.model, mk = M && M.by_key && (M.by_key[b.key] || M.by_key[b.key + "__BETMGM"]);
+  if (!mk || mk.win == null) return "";
+  var ev = mk.ev == null ? "" : " &middot; EV " + signed(mk.ev) + "%";
+  var cls = "model" + (mk.win >= 64 ? " good" : (mk.win < 60 ? " bad" : ""));
+  var lab = "MODEL " + mk.win + "%" + ev;
+  if (mk.bet) lab += " &middot; lean bet";
+  return "<div class=\"model-tag " + cls + "\" title=\"Observer model projection — advisory only, does not affect placement\">" + lab + "</div>";
+}
+
+function betCard(b){
+  var k = esc(b.key), st = mins(b.start), ed = EDIT[b.key] || {};
+  var book = b.book, mg = book === "betmgm", bga = book === "borgata";
+  var bk = mg ? "BetMGM" : (bga ? "Borgata" : "FanDuel");
+  var nfl = b.league === "nfl", soc = b.league === "fifa", own = nfl || soc;
+  var tag = (nfl ? "<span class=\"bk fb\">Football</span>" : "") + (soc ? "<span class=\"bk sc\">Soccer</span>" : "") + (DATA.split ? "<span class=\"bk" + (mg ? " mg" : (bga ? " bga" : "")) + "\">" + bk + "</span>" : "");
+  var go = nfl ? "starts" : (soc ? "kicks off" : "tips");
+  var when = st <= 0 ? "<span class=\"soon\">" + (nfl ? "starting" : (soc ? "kicking off" : "tipping")) + " now</span>" : (st <= 5 ? "<span class=\"soon\">" + go + " in " + st + " min</span>" : go + " in " + st + " min");
+  var on = b.armed && (own || DATA.live);   // DATA.live is the basketball board's health
+  var h = "<article class=\"card" + (on ? "" : " off") + "\">"
+    + "<div class=\"when\"><span><b>" + esc(tm(b.start)) + "</b> &middot; " + when + "</span><span>" + esc(b.market) + tag + "</span></div>"
+    + "<div class=\"match\">" + esc(b.ga) + "<i>v</i>" + esc(b.gb) + "</div>"
+    + (b.fdName ? "<div class=\"fdn\">" + esc(b.fdName) + "</div>" : "")
+    + "<div class=\"pick\"><span class=\"sd\">" + esc(b.side) + "</span><span class=\"px\">" + esc(am(b.price)) + "</span><span class=\"amt\">" + stakeDisplay(b) + "</span></div>"
+    + modelTag(b);
+  if (!on) h += "<div class=\"why\">Not placeable right now: " + esc(b.why || DATA.why || "board not live") + "</div>";
+  if (b.note) h += "<div class=\"why\">" + esc(b.note) + "</div>";
+  h += "<div class=\"row\">"
+    + (on && b.app ? "<a class=\"btn " + (mg ? "mg" : (bga ? "bga" : "fd")) + "\" href=\"" + esc(b.app) + "\" target=\"_blank\" rel=\"noopener\">" + bk + " app</a>" : "<span class=\"btn " + (mg ? "mg" : (bga ? "bga" : "fd")) + "\" disabled>" + bk + " app</span>")
+    + (on && b.web ? "<a class=\"btn\" href=\"" + esc(b.web) + "\" target=\"_blank\" rel=\"noopener\">Browser</a>" : "<span class=\"btn\" disabled>Browser</span>")
+    + "</div>";
+  if (!OPEN[b.key]) {
+    h += "<div class=\"row\"><button class=\"btn ok\" data-act=\"open\" data-k=\"" + k + "\">I placed it</button>"
+      + "<button class=\"btn\" data-act=\"limited\" data-k=\"" + k + "\">Bet was limited</button>"
+      + "<button class=\"btn ghost\" data-act=\"skip\" data-k=\"" + k + "\">Skip</button></div>";
+  } else {
+    h += "<form class=\"place\" data-k=\"" + k + "\"><div class=\"f\">"
+      + "<div><label>Amount accepted ($)<input name=\"amount\" inputmode=\"decimal\" autocomplete=\"off\" value=\"" + esc(ed.amount != null ? ed.amount : stake(b)) + "\"></label></div>"
+      + "<div><label>Odds<input name=\"price\" autocomplete=\"off\" value=\"" + esc(ed.price != null ? ed.price : am(b.price)) + "\"></label></div>"
+      + "<div><label>Line<input name=\"line\" autocomplete=\"off\" value=\"" + esc(ed.line != null ? ed.line : (b.line != null ? b.line : "")) + "\"></label></div>"
+      + "</div>" + limitField(b.key, ed) + "<div class=\"hint\">Enter what " + bk + " actually accepted. If it limited you, type the smaller amount; if it took nothing, tap Cancel then Skip. <b>Once confirmed it’s final</b> — only Matt can change it.</div>"
+      + "<div class=\"row\"><button class=\"btn ok\" data-act=\"place\" data-k=\"" + k + "\">Confirm placed</button>"
+      + "<button class=\"btn ghost\" data-act=\"close\" data-k=\"" + k + "\" type=\"button\">Cancel</button></div></form>";
+  }
+  return h + "</article>";
+}
+
+// A PARLAY IS ONE TICKET, AND THE SLIP DOES NOT KNOW THAT. FanDuel's multi-selection link loads
+// the legs and offers them as straight bets AND as a parlay, so the card says which line the
+// stake goes on -- the opposite instruction from "Add all", which is why the two never share a
+// button. No Line field: a ticket's lines are part of which ticket it is.
+function parlayCard(b){
+  var k = esc(b.key), st = mins(b.start), ed = EDIT[b.key] || {}, legs = b.legs || [], n = legs.length;
+  var mg = b.book === "betmgm", bga = b.book === "borgata", bk = mg ? "BetMGM" : (bga ? "Borgata" : "FanDuel");
+  var soc = b.league === "fifa";
+  var tag = (soc ? "<span class=\"bk sc\">Soccer</span>" : "") + (DATA.split ? "<span class=\"bk" + (mg ? " mg" : (bga ? " bga" : "")) + "\">" + bk + "</span>" : "");
+  var when = st <= 0 ? "<span class=\"soon\">closing now</span>" : (st <= 5 ? "<span class=\"soon\">closes in " + st + " min</span>" : "closes in " + st + " min");
+  var on = b.armed && (soc || DATA.live);   // DATA.live is the basketball board's health
+  var h = "<article class=\"card" + (on ? "" : " off") + "\">"
+    + "<div class=\"when\"><span><b>" + esc(tm(b.start)) + "</b> &middot; " + when + "</span><span>" + n + "-leg parlay" + tag + "</span></div>"
+    + "<div class=\"legs\">" + legs.map(function(l){
+        return "<div class=\"leg\"><div class=\"lt\"><b>" + esc(l.side) + "</b><span class=\"px\">" + esc(am(l.price)) + "</span></div>"
+          + "<div class=\"fdn\">" + esc(l.ga) + " v " + esc(l.gb) + " &middot; " + esc(l.market) + " &middot; " + (soc ? "kicks off " : "tips ") + esc(tm(l.start)) + "</div></div>"; }).join("") + "</div>"
+    + "<div class=\"pick\"><span class=\"sd\">Parlay, one ticket</span><span class=\"px\">" + esc(am(b.price)) + "</span><span class=\"amt\">" + stakeDisplay(b) + "</span></div>";
+  if (!on) h += "<div class=\"why\">Not placeable right now: " + esc(b.why || DATA.why || "board not live") + "</div>";
+  h += "<div class=\"hint\">The button loads all " + n + " legs. In the " + bk + " slip put <b>" + esc(usd(stake(b))) + " on the Parlay line</b> (not on the straight bets), check every leg is there, and check the parlay odds are about <b>" + esc(am(b.price)) + "</b>.</div>"
+    + "<div class=\"row\">"
+    + (on && b.app ? "<a class=\"btn " + (mg ? "mg" : (bga ? "bga" : "fd")) + "\" href=\"" + esc(b.app) + "\" target=\"_blank\" rel=\"noopener\">" + bk + " app</a>" : "<span class=\"btn " + (mg ? "mg" : (bga ? "bga" : "fd")) + "\" disabled>" + bk + " app</span>")
+    + (on && b.web ? "<a class=\"btn\" href=\"" + esc(b.web) + "\" target=\"_blank\" rel=\"noopener\">Browser</a>" : "<span class=\"btn\" disabled>Browser</span>")
+    + "</div>";
+  if (!OPEN[b.key]) {
+    h += "<div class=\"row\"><button class=\"btn ok\" data-act=\"open\" data-k=\"" + k + "\">I placed it</button>"
+      + "<button class=\"btn\" data-act=\"limited\" data-k=\"" + k + "\">Bet was limited</button>"
+      + "<button class=\"btn ghost\" data-act=\"skip\" data-k=\"" + k + "\">Skip</button></div>";
+  } else {
+    h += "<form class=\"place\" data-k=\"" + k + "\"><div class=\"f two\">"
+      + "<div><label>Amount accepted ($)<input name=\"amount\" inputmode=\"decimal\" autocomplete=\"off\" value=\"" + esc(ed.amount != null ? ed.amount : stake(b)) + "\"></label></div>"
+      + "<div><label>Parlay odds<input name=\"price\" autocomplete=\"off\" value=\"" + esc(ed.price != null ? ed.price : am(b.price)) + "\"></label></div>"
+      + "</div>" + limitField(b.key, ed) + "<div class=\"hint\">Enter the amount " + bk + " accepted on the parlay and the parlay odds it showed. <b>Once confirmed it’s final</b> — only Matt can change it.</div>"
+      + "<div class=\"row\"><button class=\"btn ok\" data-act=\"place\" data-k=\"" + k + "\">Confirm placed</button>"
+      + "<button class=\"btn ghost\" data-act=\"close\" data-k=\"" + k + "\" type=\"button\">Cancel</button></div></form>";
+  }
+  return h + "</article>";
+}
+
+function renderBets(){
+  var d = DATA, mine = d.mine || {};
+  var todo = (d.bets || []).filter(function(b){ return !mine[b.key]; });
+  var singles = todo.filter(function(b){ return b.kind !== "parlay"; });
+  var tickets = todo.filter(function(b){ return b.kind === "parlay"; });
+  $("nb").textContent = todo.length;
+  var anyFb = singles.some(function(b){ return b.league === "nfl" || b.league === "fifa"; });
+  var h = (d.split ? "<p class=\"note\"><b>Each bet is split in two:</b> half on FanDuel, half on BetMGM. Place both halves and tap <b>I placed it</b> on each. BetMGM&rsquo;s line or odds can differ a little &mdash; the card shows BetMGM&rsquo;s own." + (anyFb ? " <b>Football and soccer bets are FanDuel only.</b>" : "") + "</p>" : "")
+    + "<p class=\"note\">Tap " + (d.split ? "the FanDuel or BetMGM" : "a FanDuel") + " button to load the bet, check the <b>line and odds on the slip</b> match the card (the link can’t lock the line), place it, then tap <b>I placed it</b>. If the book capped your stake, tap <b>Bet was limited</b> and enter the amount it accepted. On a phone, open this page in Safari or Chrome (not inside a texting or social app) so <b>FanDuel app</b> opens the app.</p>";
+  var hideTip = false; try { hideTip = localStorage.getItem("pb-alert-tip") === d.alerts; } catch (e) {}
+  if (d.alertsNote) h += "<div class=\"why\" style=\"margin:0 0 12px\">" + esc(d.alertsNote) + "</div>";
+  if (d.alerts && !hideTip) h += "<div class=\"card\" style=\"padding:11px 13px\"><b>Get a ping when new bets arrive</b>"
+    + "<div class=\"hint\" style=\"margin-top:4px\">Install the free <b>ntfy</b> app (App Store / Google Play), tap <b>+</b>, and subscribe to this topic:</div>"
+    + "<div style=\"margin:8px 0;font:600 15px ui-monospace,Menlo,Consolas,monospace;user-select:all;word-break:break-all\">" + esc(d.alerts) + "</div>"
+    + "<div class=\"hint\">New bets arrive bundled in one ping, a few minutes apart at most; tap it to open this board. <a href=\"#\" data-act=\"hidetip\" data-k=\"" + esc(d.alerts) + "\">Hide this</a></div></div>";
+  if (d.addAll && d.live) h += "<div class=\"all\"><a class=\"btn fd sm\" href=\"" + esc(d.addAll.app) + "\" target=\"_blank\" rel=\"noopener\">Add all " + d.addAll.n + " (app)</a>"
+    + "<a class=\"btn sm\" href=\"" + esc(d.addAll.web) + "\" target=\"_blank\" rel=\"noopener\">browser</a><span>Keep them as singles, one stake each.</span></div>";
+  h += todo.length ? singles.map(betCard).join("") : "<div class=\"empty\"><b>Nothing to place right now</b>New bets show up here about 10–60 minutes before tip. This page refreshes itself.</div>";
+  if (tickets.length) h += "<h2>Parlays &middot; " + tickets.length + "</h2><p class=\"note\">Extra tickets <b>on top of</b> the singles above, not instead of them &mdash; place the singles first. Once you place a basketball parlay, any other basketball parlay re-using one of its legs drops off this list." + (tickets.some(function(b){ return b.league === "fifa"; }) ? " Soccer parlays are exactly Matt&rsquo;s tickets and can share a leg &mdash; place each one." : "") + "</p>"
+    + tickets.map(parlayCard).join("");
+  $("v-bets").innerHTML = h;
+}
+
+function placedItem(k, r){
+  var res = r.status === "skipped" ? "<span class=\"res\">skipped</span>"
+    : (r.result ? "<span class=\"res " + esc(r.result) + "\">" + esc(r.result === "win" ? "won" : r.result === "loss" ? "lost" : r.result) + "</span>" : "<span class=\"res\">pending</span>");
+  var pnl = r.status === "placed" && r.pnl != null ? "<div class=\"pnl " + (r.pnl > 0 ? "pos" : r.pnl < 0 ? "neg" : "") + "\">" + esc(signed(r.pnl)) + "</div>" : "";
+  var undo = r.locked ? "" : "<button class=\"btn sm ghost\" data-act=\"undo\" data-k=\"" + esc(k) + "\">Undo</button>";
+  return "<div class=\"item\"><div class=\"l\"><div class=\"t\">" + esc(r.pick || "") + (r.league === "nfl" ? " <span class=\"bk fb\">Football</span>" : "") + (r.league === "fifa" ? " <span class=\"bk sc\">Soccer</span>" : "") + (r.book === "betmgm" ? " <span class=\"bk mg\">BetMGM</span>" : "") + (r.book === "borgata" ? " <span class=\"bk bga\">Borgata</span>" : "") + (r.status === "placed" ? " &middot; " + esc(am(r.price)) + " &middot; " + esc(usd(r.stake, true)) : "") + (r.limited ? " <span class=\"bk\">Limited</span>" : "") + "</div>"
+    + "<div class=\"s\">" + (r.kind === "parlay" ? esc(r.match || "") + " &middot; first leg " + esc(tm(r.start))
+        : esc(r.match || "") + " &middot; " + esc(r.market || "") + " &middot; tip " + esc(tm(r.start)) + (r.score ? " &middot; final " + esc(r.score) : "")) + "</div></div>"
+    + "<div class=\"r\">" + res + pnl + (undo ? "<div style=\"margin-top:6px\">" + undo + "</div>" : "") + "</div></div>";
+}
+
+function renderPlaced(){
+  var m = DATA.mine || {}, ks = Object.keys(m).sort(function(a, b){ return String(m[b].start).localeCompare(String(m[a].start)); });
+  $("np").textContent = ks.filter(function(k){ return m[k].status === "placed" && !m[k].result; }).length;
+  $("v-placed").innerHTML = ks.length ? "<div class=\"card\">" + ks.map(function(k){ return placedItem(k, m[k]); }).join("") + "</div>"
+    + "<p class=\"note\">" + (DATA.role === "admin" ? "Viewing as Matt: Undo changes this record." : "Recorded bets are final here. Grade results or fix anything in <a href=\"admin\">admin</a>.") + "</p>"
+    : "<div class=\"empty\"><b>Nothing placed yet</b>Bets you mark placed in the last day and a half show here with their results.</div>";
+}
+
+function stat(k, s){
+  return "<div class=\"stat\"><div class=\"k\">" + k + "</div><div class=\"v " + (s.pnl > 0 ? "pos" : s.pnl < 0 ? "neg" : "") + "\">" + esc(signed(s.pnl)) + "</div>"
+    + "<div class=\"s\">" + s.w + "-" + s.l + (s.p ? "-" + s.p : "") + " &middot; " + (s.roi == null ? "–" : (s.roi > 0 ? "+" : "") + s.roi + "%") + (s.open ? " &middot; " + s.open + " open" : "") + "</div></div>";
+}
+
+function renderRecord(){
+  if (!REC) { $("v-record").innerHTML = "<div class=\"empty\">Loading your record&hellip;</div>"; return; }
+  var S = REC.summary;
+  var h = "<div class=\"stats\">" + stat("Today", S.today.placed) + stat("7 days", S.week.placed) + stat("All time", S.all.placed) + "</div>";
+  var BL = S.all.byLeague || {};
+  if (BL.nfl || BL.fifa) h += "<div class=\"stats\">" + [["nba", "Basketball"], ["nfl", "Football"], ["fifa", "Soccer"]].map(function(x){
+      return BL[x[0]] ? stat(x[1] + ", all time", BL[x[0]].placed) : ""; }).join("") + "</div>";
+  h += "<p class=\"note\">P&amp;L on the bets you placed, at the odds you took. Staked: " + esc(usd(S.all.placed.staked)) + " all time.</p>";
+  h += "<h2>By day</h2><div class=\"card\"><table><tr><th>Day</th><th>Bets</th><th>W-L</th><th>P&amp;L</th><th>ROI</th></tr>"
+    + REC.days.slice(0, 30).map(function(x){ var s = x.placed; return "<tr><td>" + esc(x.day) + "</td><td>" + s.n + "</td><td>" + s.w + "-" + s.l + "</td><td class=\"" + (s.pnl > 0 ? "pos" : s.pnl < 0 ? "neg" : "") + "\">" + esc(signed(s.pnl)) + "</td><td>" + (s.roi == null ? "–" : s.roi + "%") + "</td></tr>"; }).join("")
+    + "</table></div>";
+  var pl = REC.rows.filter(function(r){ return r.status === "placed"; }).slice(0, 80);
+  h += "<h2>Your bets</h2><div class=\"card\">" + (pl.length ? pl.map(function(r){
+      var pr = r.placed || {};
+      return placedItem(r.key, {status: "placed", kind: r.kind, pick: pr.pick, price: pr.price, stake: pr.stake, limited: pr.limited, book: r.book, league: r.league, match: r.match, market: r.market, start: r.start, result: r.result, score: r.score, pnl: r.pnl, locked: true});
+    }).join("") : "<div class=\"empty\">No placed bets yet.</div>") + "</div>";
+  $("v-record").innerHTML = h;
+}
+
+function render(){
+  if (!DATA) return;
+  head(); renderBets(); renderPlaced();
+  if (TAB === "record") renderRecord();
+  [].forEach.call(document.querySelectorAll("nav button"), function(b){ b.classList.toggle("on", b.getAttribute("data-tab") === TAB); });
+  ["bets", "placed", "record"].forEach(function(t){ $("v-" + t).hidden = (t !== TAB); });
+}
+
+function lockOut(msg){
+  // The link is locked to another device (or this browser sends no cookie). Whatever was on
+  // screen goes: a device blocked while the page is open must not keep showing the bets.
+  LOCKED = msg; DATA = null; REC = null;
+  $("nb").textContent = "0"; $("np").textContent = "0"; $("bank").innerHTML = "&nbsp;"; $("cap").innerHTML = "&nbsp;";
+  ["placed", "record"].forEach(function(t){ $("v-" + t).innerHTML = ""; $("v-" + t).hidden = true; });
+  $("v-bets").hidden = false;
+  $("v-bets").innerHTML = "<div class=\"empty\"><b>This board can’t be opened here</b>" + esc(msg) + "</div>";
+}
+function loadLive(){
+  // Live P&L on the user's placed bets, written by the realtime updater.
+  fetch(BASE + "/live" + QS, {cache: "no-store", credentials: "same-origin"}).then(function(r){ return r.json(); })
+  .then(function(j){
+    var el = $("livepnl"); if (!el) return;
+    if (!j || !j.at || j.error) { el.className = "livepnl"; el.textContent = ""; return; }
+    var net = Number(j.overall_net_graded) || 0;
+    var n = j.graded_count || 0;
+    if (!n) { el.className = "livepnl"; el.textContent = ""; return; }
+    el.textContent = "Live P&L (placed): " + (net >= 0 ? "+" : "−") + esc(usd(Math.abs(net), true))
+      + " · " + (j.wins||0) + "-" + (j.losses||0);
+    el.className = "livepnl " + (net > 0 ? "pos" : net < 0 ? "neg" : "");
+  }).catch(function(){});
+}
+
+function load(){
+  return fetch(BASE + "/data" + QS, {cache: "no-store", credentials: "same-origin"}).then(function(r){
+    if (r.status === 401 || r.status === 403) return r.json().then(function(j){ if (j.locked) lockOut(j.error || ""); throw new Error(j.error || "not signed in"); });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  }).then(function(j){ LOCKED = null; DATA = j; if (!typing() && !BUSY) render(); })
+  .catch(function(e){ var s = $("status"); s.className = "status down"; $("stxt").textContent = LOCKED ? "Not available on this device" : "Can’t reach the board (" + e.message + "). Retrying…"; });
+}
+function loadRecord(force){
+  if (!force && REC && Date.now() - recAt < 60000) { renderRecord(); return; }
+  fetch(BASE + "/record" + QS, {cache: "no-store", credentials: "same-origin"}).then(function(r){ return r.json(); })
+  .then(function(j){ if (j && j.ok) { REC = j; recAt = Date.now(); if (TAB === "record") renderRecord(); } }).catch(function(){});
+}
+function act(body){
+  BUSY = true;
+  if (PID) body.p = PID;
+  return fetch(BASE + "/act", {method: "POST", credentials: "same-origin", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)})
+  .then(function(r){ return r.json().then(function(j){ if (!r.ok || !j.ok) throw new Error(j.error || ("HTTP " + r.status)); return j; }); })
+  .then(function(j){ BUSY = false; return load().then(function(){ return j; }); })
+  .catch(function(e){ BUSY = false; toast(e.message, true); throw e; });
+}
+function betBy(k){ return (DATA.bets || []).filter(function(b){ return b.key === k; })[0]; }
+
+document.addEventListener("click", function(ev){
+  var t = ev.target.closest("[data-tab],[data-act]"); if (!t) return;
+  if (t.hasAttribute("data-tab")) { TAB = t.getAttribute("data-tab"); try { localStorage.setItem("pb-tab", TAB); } catch (e) {}
+    render(); if (TAB === "record") loadRecord(false); window.scrollTo(0, 0); return; }
+  var a = t.getAttribute("data-act"), k = t.getAttribute("data-k"), b = betBy(k);
+  ev.preventDefault();
+  if (a === "hidetip") { try { localStorage.setItem("pb-alert-tip", k); } catch (e) {} render(); return; }
+  if (a === "open" || a === "limited") { OPEN[k] = a === "limited" ? "limited" : true; if (a === "limited") EDIT[k] = Object.assign({}, EDIT[k] || {}, {amount: "", limited: true}); render(); var f = document.querySelector("form.place[data-k=\"" + CSS.escape(k) + "\"] input"); if (f) f.focus(); return; }
+  if (a === "close") { delete OPEN[k]; delete EDIT[k]; if (document.activeElement) document.activeElement.blur(); render(); return; }
+  if (a === "place") {
+    var form = t.closest("form"), v = {};
+    [].forEach.call(form.querySelectorAll("input"), function(i){ v[i.name] = i.type === "checkbox" ? i.checked : i.value.trim(); });
+    if (document.activeElement) document.activeElement.blur();
+    act({action: "place", key: k, amount: v.amount, price: v.price, line: v.line, limited: v.limited, side: b ? b.side : null})
+      .then(function(){ delete OPEN[k]; delete EDIT[k]; toast("Recorded: " + (b ? b.side : "bet") + " for $" + v.amount); render(); }).catch(function(){});
+    return;
+  }
+  if (a === "skip") { if (DATA.role !== "admin" && !confirm("Skip " + (b ? b.side : "this bet") + "? You can’t undo this — only Matt can change it.")) return;
+    act({action: "skip", key: k, side: b ? b.side : null}).then(function(){ toast("Skipped — undo it under Placed"); render(); }).catch(function(){}); return; }
+  if (a === "undo") { act({action: "undo", key: k}).then(function(){ toast("Undone"); render(); if (TAB === "record") loadRecord(true); }).catch(function(){}); return; }
+});
+document.addEventListener("input", function(ev){
+  if (ev.target && ev.target.id === "fdbank") {
+    MYBANK_FD = ev.target.value.trim();
+    try { if (MYBANK_FD) localStorage.setItem("pb-fdbank", MYBANK_FD); else localStorage.removeItem("pb-fdbank"); } catch (e) {}
+    render();
+    return;
+  }
+  if (ev.target && ev.target.id === "mgmbank") {
+    MYBANK_MGM = ev.target.value.trim();
+    try { if (MYBANK_MGM) localStorage.setItem("pb-mgmbank", MYBANK_MGM); else localStorage.removeItem("pb-mgmbank"); } catch (e) {}
+    render();
+    return;
+  }
+  if (ev.target && ev.target.id === "bgabank") {
+    MYBANK_BGA = ev.target.value.trim();
+    try { if (MYBANK_BGA) localStorage.setItem("pb-bgabank", MYBANK_BGA); else localStorage.removeItem("pb-bgabank"); } catch (e) {}
+    render();
+    return;
+  }
+  if (ev.target && ev.target.id === "boost15") {
+    BOOST15 = ev.target.checked;
+    try { if (BOOST15) localStorage.setItem("pb-boost15", "1"); else localStorage.removeItem("pb-boost15"); } catch (e) {}
+    render();
+    return;
+  }
+  var f = ev.target.closest("form.place"); if (!f) return;
+  var k = f.getAttribute("data-k"); EDIT[k] = EDIT[k] || {}; EDIT[k][ev.target.name] = ev.target.type === "checkbox" ? ev.target.checked : ev.target.value;
+});
+// ENTER IN A FIELD SUBMITS THE FORM, which would reload the page and lose the entry. Route it to the
+// same Confirm button instead. (No re-render on blur: a render between blur and click can replace
+// the button being tapped; the 15 s poll catches up once nothing is focused.)
+document.addEventListener("submit", function(ev){ ev.preventDefault();
+  var btn = ev.target.querySelector("[data-act=place]"); if (btn) btn.click(); });
+document.addEventListener("visibilitychange", function(){
+  if (document.hidden) return;
+  // Wake-from-sleep: the timer dies when the laptop sleeps and does not resume.
+  // If our data is stale (>4 min) the JS may be wedged - force a full reload.
+  var lastSeen = DATA && (DATA.checkedAt || DATA.at);
+  if (lastSeen && (Date.now() - new Date(lastSeen).getTime() > 4*60*1000)) { location.reload(); return; }
+  load(); loadLive(); if (TAB === "record") loadRecord(false);
+});
+load(); setInterval(load, 15000);
+setInterval(function(){ if (DATA && !typing() && !BUSY) render(); }, 30000);
+setInterval(loadLive, 15000);
+if (TAB === "record") loadRecord(false);
+})();
+</script>
+</body>
+</html>

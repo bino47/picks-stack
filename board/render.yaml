@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: picks-board
+    runtime: python
+    plan: starter
+    buildCommand: "true"
+    startCommand: python board_host.py
+    envVars:
+      - key: CARD_SOURCE
+        sync: false        # https://picks-pipeline-XXXX.onrender.com/board
+      - key: SETTLE_SOURCE
+        sync: false        # https://picks-pipeline-XXXX.onrender.com/graded
+      - key: SETTLE_EVERY
+        value: "120"
+      - key: FIRST_ADMIN_USERNAME
+        sync: false        # remove after first login
+      - key: FIRST_ADMIN_PASSWORD
+        sync: false        # remove after first login
+      - key: DB_PATH
+        value: /var/data/board.db
+    disk:
+      name: board-data
+      mountPath: /var/data
+      sizeGB: 1
