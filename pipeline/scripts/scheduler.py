@@ -180,17 +180,32 @@ def board_bets():
             best[sig] = (dec, c, start)
     for dec, c, start in best.values():
         rec = bool(c.get('bet'))
+        # the brain's own quarter-Kelly sizing, identical to the paper books:
+        # f = (p*dec - 1)/(dec - 1), quarter-Kelly, capped at 2.5% of bankroll
+        try:
+            p = float(c.get('model_win') or 0) / 100.0
+            price = float(c.get('price') or -110)
+            d2 = 1 + (price / 100.0 if price > 0 else 100.0 / abs(price))
+            f = (p * d2 - 1) / (d2 - 1)
+            f = max(0.0, min(0.25 * f, 0.025))
+            kelly_stake = round(max(5.0, partner['bankroll'] * f), 2) if f > 0 else 0
+        except Exception:
+            kelly_stake = 0
         bets.append({
             'key': c.get('key'), 'kind': 'nba', 'league': 'nba',
             'match': c.get('match'), 'ga': (c.get('match') or '').split(' v ')[0],
             'gb': (c.get('match') or ' v ').split(' v ')[1] if ' v ' in (c.get('match') or '') else '',
             'market': c.get('market'), 'side': c.get('side'),
-            'price': c.get('price'), 'stake': None, 'start': c.get('key', '').replace('_', '-'),
-            'note': 'observer: model %.1f%% EV %s%% -> %s' % (
+            'price': c.get('price'), 'stake': kelly_stake if rec else 0,
+            'start': c.get('key', '').replace('_', '-'),
+            'note': 'observer: model %.1f%% EV %s%% -> %s%s' % (
                 float(c.get('model_win') or 0), c.get('ev'),
-                'BET (profitable band)' if rec else 'skip (below 64%% band)'),
+                'BET (profitable band)' if rec else 'skip (below 64%% band)',
+                '' if not rec else ' | qKelly $%s' % ('%.0f' % kelly_stake)),
             'armed': rec, 'why': '' if rec else 'observer model: below the 64%% band',
             'book': 'FanDuel', 'line': '', 'legs': []})
+    # best EV first so the top of the card is the brain's strongest conviction
+    bets.sort(key=lambda b: -float((b.get('note') or '').split('EV ')[-1].split('%')[0] or -99))
     return bets, partner
 
 
