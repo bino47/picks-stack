@@ -362,6 +362,7 @@ class H(BaseHTTPRequestHandler):
             card['mine'] = mine
             card['settings'] = json.loads(st['payload']) if st else {}
             card['myrecord'] = user_record(user['id'])
+            card['role'] = user['role']
             self._send(200, json.dumps(card).encode(), 'application/json')
             return
         if path == '/admin' and user['role'] == 'admin':

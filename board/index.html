@@ -536,5 +536,38 @@ setInterval(loadLive, 15000);
 if (TAB === "record") loadRecord(false);
 })();
 </script>
+<script>
+(function(){
+  var b = document.createElement("button");
+  b.textContent = "Account";
+  b.style.cssText = "position:fixed;bottom:12px;right:12px;z-index:99;padding:9px 16px;border:0;border-radius:8px;background:#16201a;color:#fff;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.3)";
+  function post(body, okmsg){
+    fetch("/act",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",
+      body:JSON.stringify(body)})
+      .then(function(r){ return r.json(); })
+      .then(function(j){ alert(j.ok ? okmsg : "Failed: " + (j.error || "unknown error")); })
+      .catch(function(e){ alert("Request failed: " + e); });
+  }
+  b.onclick = function(){
+    var c = prompt("Picks board account\n\n1 = Change my password\n2 = Create a friend account (admin)\n\nEnter 1 or 2:");
+    if (c === "1") {
+      var cur = prompt("Current password:");
+      if (!cur) return;
+      var nw = prompt("New password (8+ characters):");
+      if (!nw || nw.length < 8) { alert("New password must be at least 8 characters."); return; }
+      post({act:"set_password", current:cur, new:nw}, "Password changed \u2713 Use it at your next login.");
+    } else if (c === "2") {
+      if (!DATA || DATA.role !== "admin") { alert("Only the admin can create accounts."); return; }
+      var u = prompt("New username:");
+      if (!u || !/^[A-Za-z0-9_.-]{2,30}$/.test(u)) { alert("Username: 2-30 letters/numbers/dots/dashes."); return; }
+      var p2 = prompt("Temporary password for " + u + " (8+ characters):");
+      if (!p2 || p2.length < 8) { alert("Password must be at least 8 characters."); return; }
+      post({act:"admin_create_user", username:u, password:p2},
+        "User '" + u + "' created \u2713 Share the board URL + these credentials privately. " + u + " should change the password after first login.");
+    }
+  };
+  document.body.appendChild(b);
+})();
+</script>
 </body>
 </html>
