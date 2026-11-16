@@ -180,14 +180,15 @@ def board_bets():
             best[sig] = (dec, c, start)
     for dec, c, start in best.values():
         rec = bool(c.get('bet'))
-        # the brain's own quarter-Kelly sizing, identical to the paper books:
-        # f = (p*dec - 1)/(dec - 1), quarter-Kelly, capped at 2.5% of bankroll
+        # the brain's own quarter-Kelly sizing, identical to the paper books'
+        # formula but UNCAPPED at the user's request (2026-11-15):
+        # f = (p*dec - 1)/(dec - 1), quarter-Kelly, $5 floor
         try:
             p = float(c.get('model_win') or 0) / 100.0
             price = float(c.get('price') or -110)
             d2 = 1 + (price / 100.0 if price > 0 else 100.0 / abs(price))
             f = (p * d2 - 1) / (d2 - 1)
-            f = max(0.0, min(0.25 * f, 0.025))
+            f = max(0.0, 0.25 * f)
             kelly_stake = round(max(5.0, partner['bankroll'] * f), 2) if f > 0 else 0
         except Exception:
             kelly_stake = 0
