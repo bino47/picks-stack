@@ -3,7 +3,7 @@ services:
     name: picks-pipeline
     runtime: python
     plan: starter
-    buildCommand: pip install numpy
+    buildCommand: pip install numpy curl_cffi
     startCommand: bash ./start.sh
     envVars:
       - key: BETSAPI_KEY

@@ -10,7 +10,7 @@ Web endpoints (for the local boards / any viewer to pull):
   GET /          status page
   GET /data      {esb_ledger, model_sb_ledger, kalshi state}
 """
-import json, os, re, subprocess, sys, threading, time, datetime as dt
+import json, os, re, subprocess, sys, threading, time, calendar, datetime as dt
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -141,21 +141,26 @@ def board_bets():
             pass
         base = 'esb:%s:%s' % (o.get('event_id'), (o.get('side') or '').strip())
         note = ('model %.1f%% EV %+.1f%%' % (100 * (o.get('model_p') or 0), 100 * (o.get('ev') or 0))
-                + ' | Same game at BOTH books - place at one, then tap Skip on the other row. '
-                  'The link opens the esoccer lobby: find the same match, check odds match before betting.')
-        # both books carry these leagues (verified Nov 13): one row per book so
-        # the board's per-book buttons, links and bankroll scaling all engage.
+            + ' | Same game at BOTH books - place at one, then tap Skip on the other row. ')
+        # exact-game deep link: resolve once, ids are shared across both books
+        # (same Entain NJ platform). Falls back to the league lobby on any
+        # miss, so the buttons always work.
+        epath = _mgm_event_path(108, o.get('home') or '', o.get('away') or '',
+                                int(o.get('time') or 0))
+        note += ('Links open the exact match - check odds match before betting.' if epath
+                 else 'The link opens the esoccer lobby: find the same match, check odds match before betting.')
         # 'app' = mobile-web (sports.*): plain web page, does NOT open the app
         # by itself. The BOARD front-end (index.html appHref()) rewrites these
-        # to Android intent:// deep links with the real package names
-        # (com.playmgm.nj.sports / com.borgata.nj.sports). iPhone still gets
-        # the web link: MGM's universal links are broken by their Redirex
-        # 302 layer, and no public betmgm:// scheme is documented (2026-11-16).
+        # per platform: Android intent:// deep links with the real package
+        # names (com.playmgm.nj.sports / com.borgata.nj.sports); iPhone the
+        # /*/sportsapp/* universal-link route on the www. domains (AASA covers
+        # only that prefix; sports.* is Redirex-302'd so never used for iOS).
+        p108 = epath or 'esoccer-108'
         for book, web, app in (
-                ('betmgm', 'https://www.nj.betmgm.com/en/sports/esoccer-108',
-                 'https://sports.betmgm.com/en/sports/esoccer-108'),
-                ('borgata', 'https://www.borgataonline.com/en/sports/esoccer-108',
-                 'https://sports.borgataonline.com/en/sports/esoccer-108')):
+                ('betmgm', 'https://www.nj.betmgm.com/en/sports/' + p108,
+                 'https://sports.betmgm.com/en/sports/' + p108),
+                ('borgata', 'https://www.borgataonline.com/en/sports/' + p108,
+                 'https://sports.borgataonline.com/en/sports/' + p108)):
             bets.append({
                 'key': base + '|' + book, 'kind': 'esb', 'league': o.get('league'),
                 'match': '%s v %s' % (o.get('home'), o.get('away')),
@@ -210,6 +215,14 @@ def board_bets():
             kelly_stake = round(max(5.0, partner['bankroll'] * f), 2) if f > 0 else 0
         except Exception:
             kelly_stake = 0
+        # exact eBasketball GG event link for the MGM books (shared ids);
+        # FanDuel rows keep the plain lobby links (no resolver for FD yet).
+        nb = (c.get('book') or 'fanduel').strip().lower()
+        mparts = (c.get('match') or ' v ').split(' v ')
+        epath = _mgm_event_path(119, mparts[0],
+                                mparts[1] if len(mparts) > 1 else '',
+                                start.timestamp()) if nb in ('betmgm', 'borgata') else ''
+        links = _mgm_links(epath, nb)
         bets.append({
             'key': c.get('key'), 'kind': 'nba', 'league': 'nba',
             'match': c.get('match'), 'ga': (c.get('match') or '').split(' v ')[0],
@@ -222,9 +235,9 @@ def board_bets():
                 'BET (profitable band)' if rec else 'skip (below 64%% band)',
                 '' if not rec else ' | qKelly $%s' % ('%.0f' % kelly_stake)),
             'armed': rec, 'why': '' if rec else 'observer model: below the 64%% band',
-            'book': (c.get('book') or 'fanduel'),
-            'web': NBA_BOOK_LINKS.get((c.get('book') or '').strip().lower(), ''),
-            'app': NBA_BOOK_APPS.get((c.get('book') or '').strip().lower(), ''),
+            'book': nb,
+            'web': links[0] if links else NBA_BOOK_LINKS.get(nb, ''),
+            'app': links[1] if links else NBA_BOOK_APPS.get(nb, ''),
             'line': '', 'legs': []})
     # best EV first so the top of the card is the brain's strongest conviction
     bets.sort(key=lambda b: -float((b.get('note') or '').split('EV ')[-1].split('%')[0] or -99))
@@ -244,6 +257,103 @@ NBA_BOOK_APPS = {
     'betmgm': 'https://sports.betmgm.com/en/sports/ebasketball-119/betting/world-6/ebasketball-h2h-gg-league-108782',
     'borgata': 'https://sports.borgataonline.com/en/sports/ebasketball-119/betting/world-6/ebasketball-h2h-gg-league-108782',
 }
+
+
+# --- exact-game deep links (2026-11-16) ---------------------------------------
+# Both books run the same Entain NJ platform and SHARE event ids, so one
+# resolution serves both. Feed: cds-api/bettingoffer/fixtures with the public
+# page access id (no auth). Cloudflare blocks plain-python TLS fingerprints on
+# the API path (urllib/requests/httpx all get 403; only curl TLS passes), so
+# curl_cffi impersonates Safari — added to start.sh/Dockerfile pip installs.
+# Fixture name "Paris (ZORO) - Atleti (Firminho)" + id "5:1382794" map to the
+# web route /en/sports/events/paris-zoro-atleti-firminho-5:1382794 (verified
+# rendering the exact event on both books). The board front-end appHref()
+# then rewrites per platform with NO changes needed here:
+#   Android: intent://sports.<book>/en/sports/events/...#Intent;package=...
+#   iPhone: https://www.<book>/en/sportsapp/sports/events/... (AASA covers
+#           /*/sportsapp/*; the sportsapp prefix 302s to the same web path)
+try:
+    from curl_cffi import requests as _cr
+except Exception:
+    _cr = None
+_MGM_ACC = 'ZTllNjllODUtOWQwNS00YmU4LWE4NTEtZGZjOTkzMGM5OWU4'
+_MGM_HOST = 'www.nj.betmgm.com'
+_MGM_FIXAPI = ('https://%s/cds-api/bettingoffer/fixtures?x-bwin-accessid=%s'
+               '&lang=en-us&country=US&userCountry=US&subdivision=US-California'
+               '&fixtureTypes=Standard&state=Latest&offerMapping=Filtered'
+               '&offerCategories=Gridable&fixtureCategories=Gridable,NonGridable,Other'
+               '&isPriceBoost=false&statisticsModes=Rank,SeasonStandings'
+               '&skip=0&take=100&sortBy=Tags&sportIds=%%d') % (_MGM_HOST, _MGM_ACC)
+_MGM_CACHE = {'at': 0.0, 'fx': {}}       # sport id -> [ {id,name,start}, ... ]
+_MGM_LOCK = threading.Lock()
+# sport ids: esoccer sims = 108, eBasketball H2H GG = 119 (compId 108782)
+
+def _mgm_fixtures(sport):
+    """upcoming fixtures for a sport id, cached 90s; [] on any failure"""
+    if _cr is None:
+        return []
+    now = time.time()
+    if now - _MGM_CACHE['at'] > 90:
+        if _MGM_LOCK.acquire(blocking=False):
+            try:
+                s = _cr.Session(impersonate='safari')
+                s.get('https://%s/en/sports/esoccer-108' % _MGM_HOST, timeout=10)
+                for sp in (108, 119):
+                    r = s.get(_MGM_FIXAPI % sp,
+                              headers={'Accept': 'application/json'}, timeout=10)
+                    d = r.json()
+                    _MGM_CACHE['fx'][sp] = [
+                        {'id': x['id'],
+                         'name': (x.get('name') or {}).get('value') or '',
+                         'start': x.get('startDate')}
+                        for x in (d.get('fixtures') or [])]
+                _MGM_CACHE['at'] = now
+            except Exception:
+                _MGM_CACHE['at'] = now    # back off this cycle; lobby links serve
+            finally:
+                _MGM_LOCK.release()
+    return _MGM_CACHE['fx'].get(sport) or []
+
+def _mgm_tags(s):
+    """player/club tokens: parenthesized gamer tag if present, else the name"""
+    t = re.findall(r'\(([^)]+)\)', s)
+    return [re.sub(r'[^A-Z0-9]', '', x.upper()) for x in t] or \
+           [re.sub(r'[^A-Z0-9]', '', s.upper())]
+
+def _mgm_event_path(sport, home, away, start_ts, window=300):
+    """'events/<slug>-<id>' for the fixture matching both tags + start time"""
+    want = _mgm_tags(home or '') + _mgm_tags(away or '')
+    want = [w for w in want if w]
+    if not want:
+        return ''
+    best, bd = None, None
+    for f in _mgm_fixtures(sport):
+        try:
+            ts = calendar.timegm(time.strptime((f['start'] or '')[:19],
+                                               '%Y-%m-%dT%H:%M:%S'))
+        except Exception:
+            continue
+        if abs(ts - start_ts) > window:
+            continue
+        have = set(_mgm_tags(f['name']))
+        if not all(w in have for w in want):
+            continue
+        if best is None or abs(ts - start_ts) < bd:
+            best, bd = f, abs(ts - start_ts)
+    if not best:
+        return ''
+    slug = '-'.join(re.sub(r'[^a-z0-9]+', ' ', best['name'].lower()).split())
+    return 'events/%s-%s' % (slug, best['id'])
+
+def _mgm_links(path, book):
+    """(web, app) links for a book given a shared event path, else None"""
+    if not path or book not in ('betmgm', 'borgata'):
+        return None
+    www = 'https://www.nj.betmgm.com/en/sports/' if book == 'betmgm' \
+        else 'https://www.borgataonline.com/en/sports/'
+    app = 'https://sports.betmgm.com/en/sports/' if book == 'betmgm' \
+        else 'https://sports.borgataonline.com/en/sports/'
+    return (www + path, app + path)
 
 
 def graded_rows():
