@@ -86,6 +86,16 @@ def init_db():
         if u and p:
             create_user(c, u, p, 'admin')
             print('bootstrapped first admin:', u, '- REMOVE the env vars after first login')
+    # one-time account creation from env (ADD_USERS="user:pass;user2:pass2"),
+    # set via Render API then removed — passwords never live in the repo
+    for spec in (os.environ.get('ADD_USERS') or '').split(';'):
+        spec = spec.strip()
+        if not spec or ':' not in spec:
+            continue
+        u, p = spec.split(':', 1)
+        if u and p and not c.execute("SELECT 1 FROM users WHERE username=?", (u,)).fetchone():
+            create_user(c, u, p, 'user')
+            print('ADD_USERS: created', u)
     c.close()
 
 
