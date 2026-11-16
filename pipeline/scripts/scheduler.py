@@ -146,6 +146,7 @@ def board_bets():
             # provider). Single bet365 row, lobby link, manual match check.
             bets.append({
                 'key': base + '|bet365', 'kind': 'esb', 'league': o.get('league'),
+                'lgName': 'bet365: Soccer > Esports > Esoccer H2H GG League - 8 mins play',
                 'match': '%s v %s' % (o.get('home'), o.get('away')),
                 'ga': o.get('home'), 'gb': o.get('away'),
                 'market': o.get('market'), 'side': o.get('side'),
@@ -189,6 +190,8 @@ def board_bets():
                  'https://sports.borgataonline.com/en/sports/' + p108)):
             bets.append({
                 'key': base + '|' + book, 'kind': 'esb', 'league': o.get('league'),
+                'lgName': ('Esoccer Battle 2x4 (8 mins) — on the app: Soccer > Esoccer '
+                           '(leagues named like "Battle Premier League 2x4" / "Battle La Liga 2x4")'),
                 'match': '%s v %s' % (o.get('home'), o.get('away')),
                 'ga': o.get('home'), 'gb': o.get('away'),
                 'market': o.get('market'), 'side': o.get('side'),
@@ -251,6 +254,9 @@ def board_bets():
         links = _mgm_links(epath, nb)
         bets.append({
             'key': c.get('key'), 'kind': 'nba', 'league': 'nba',
+            'lgName': ('eBasketball H2H GG League - 4x5 mins — on the app: Basketball > E-Basketball'
+                       if nb in ('betmgm', 'borgata')
+                       else 'FanDuel: Basketball > E-Basketball (eBasketball H2H GG)'),
             'match': c.get('match'), 'ga': (c.get('match') or '').split(' v ')[0],
             'gb': (c.get('match') or ' v ').split(' v ')[1] if ' v ' in (c.get('match') or '') else '',
             'market': c.get('market'), 'side': c.get('side'),

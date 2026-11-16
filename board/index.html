@@ -320,6 +320,7 @@ function betCard(b){
   var h = "<article class=\"card" + (on ? "" : " off") + "\">"
     + "<div class=\"when\"><span><b>" + esc(tm(b.start)) + "</b> &middot; " + when + "</span><span>" + esc(b.market) + tag + "</span></div>"
     + "<div class=\"match\">" + esc(b.ga) + "<i>v</i>" + esc(b.gb) + "</div>"
+    + (b.lgName ? "<div class=\"fdn\">League: " + esc(b.lgName) + "</div>" : "")
     + (b.fdName ? "<div class=\"fdn\">" + esc(b.fdName) + "</div>" : "")
     + "<div class=\"pick\"><span class=\"sd\">" + esc(b.side) + "</span><span class=\"px\">" + esc(am(b.price)) + "</span><span class=\"amt\">" + stakeDisplay(b) + "</span></div>"
     + modelTag(b);
