@@ -159,7 +159,8 @@ def board_bets():
     for c in card.get('card', []):
         if c.get('league') != 'nba':
             continue
-        m = re.match(r'^(\d{4})_(\d{2})_(\d{2})T(\d{2})_(\d{2})', c.get('key') or '')
+        # real game start parsed from the key prefix YYYY_MM_DDTHH_MM_SSSZ_...
+        m = re.match(r'^(\d{4})_(\d{2})_(\d{2})T(\d{2})_(\d{2})_(\d{2})', c.get('key') or '')
         if not m:
             continue
         start = dt.datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)),
@@ -198,7 +199,7 @@ def board_bets():
             'gb': (c.get('match') or ' v ').split(' v ')[1] if ' v ' in (c.get('match') or '') else '',
             'market': c.get('market'), 'side': c.get('side'),
             'price': c.get('price'), 'stake': kelly_stake if rec else 0,
-            'start': c.get('key', '').replace('_', '-'),
+            'start': start.isoformat(),
             'note': 'observer: model %.1f%% EV %s%% -> %s%s' % (
                 float(c.get('model_win') or 0), c.get('ev'),
                 'BET (profitable band)' if rec else 'skip (below 64%% band)',
