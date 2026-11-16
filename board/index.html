@@ -280,21 +280,32 @@ function modelTag(b){
   return "<div class=\"model-tag " + cls + "\" title=\"Observer model projection — advisory only, does not affect placement\">" + lab + "</div>";
 }
 
-// The raw https://sports.* links open mobile WEB, not the app: the MGM domains
-// are not usable universal links (their AASA fetch gets 302'd by the Redirex
-// geo layer, and Apple requires no redirects). On Android we rewrite to an
-// intent:// link with the real package so Chrome opens the installed app
-// (packages verified via Google Play 2026-11-16); browser_fallback_url keeps
-// mobile web as the fallback. iPhone: no public URL scheme for the MGM apps
-// exists, so it keeps the web link until we find one.
+// Android: rewrite to an intent:// link with the real package so Chrome opens
+// the installed app (packages verified via Google Play 2026-11-16);
+// browser_fallback_url keeps mobile web as the fallback.
+// iPhone (2026-11-16): the sports.* mobile domains can NEVER open the app —
+// their Redirex geo layer 302s the /.well-known/apple-app-site-association
+// fetch, so iOS never verifies them. But the www. domains serve the AASA
+// cleanly, and it covers exactly /*/sportsapp/* (everything else excluded).
+// So on iOS we rewrite the link to https://<www-domain>/en/sportsapp/sports/...
+// — Safari sees the covered path and opens the installed app directly; in a
+// browser the URL 302s back to the same web page, so the fallback is harmless.
 function appHref(b){
   var u = b.app || "";
-  if (!u || !/Android/i.test(navigator.userAgent) || u.indexOf("https://") !== 0) return u;
-  var pkg = b.book === "betmgm" ? "com.playmgm.nj.sports"
-          : (b.book === "borgata" ? "com.borgata.nj.sports" : "");
-  if (!pkg) return u;
-  return "intent://" + u.slice(8) + "#Intent;scheme=https;package=" + pkg
-       + ";S.browser_fallback_url=" + encodeURIComponent(u) + ";end";
+  if (!u || u.indexOf("https://") !== 0) return u;
+  var mg = b.book === "betmgm", bga = b.book === "borgata";
+  if (/Android/i.test(navigator.userAgent)) {
+    var pkg = mg ? "com.playmgm.nj.sports" : (bga ? "com.borgata.nj.sports" : "");
+    if (!pkg) return u;
+    return "intent://" + u.slice(8) + "#Intent;scheme=https;package=" + pkg
+         + ";S.browser_fallback_url=" + encodeURIComponent(u) + ";end";
+  }
+  if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+    var host = mg ? "www.nj.betmgm.com" : (bga ? "www.borgataonline.com" : "");
+    var m = host && u.match(/^https:\/\/sports\.[a-z.]+\/en\/sports\/(.+)$/);
+    if (m) return "https://" + host + "/en/sportsapp/sports/" + m[1];
+  }
+  return u;
 }
 
 function betCard(b){
