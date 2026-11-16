@@ -50,6 +50,14 @@ section{padding-top:12px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;
 margin:0 0 12px;box-shadow:var(--shadow)}
 .card.off{opacity:.92}
+details.watch{margin:14px 0 12px;border:1px dashed var(--line);border-radius:12px;padding:0}
+details.watch summary{list-style:none;cursor:pointer;padding:11px 14px;font-size:14px;font-weight:650;color:var(--muted)}
+details.watch summary::-webkit-details-marker{display:none}
+details.watch summary:before{content:"▸ ";display:inline-block;transition:transform .15s}
+details.watch[open] summary:before{transform:rotate(90deg)}
+details.watch[open] summary{border-bottom:1px solid var(--line)}
+details.watch .note{padding:0 14px}
+details.watch article.card{margin:0 14px 12px}
 .when{display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted)}
 .when b{color:var(--ink);font-weight:650}.soon{color:var(--warn);font-weight:700}
 .match{font-size:17px;font-weight:750;margin-top:4px;letter-spacing:-.01em}
@@ -352,7 +360,9 @@ function renderBets(){
   var todo = (d.bets || []).filter(function(b){ return !mine[b.key]; });
   var singles = todo.filter(function(b){ return b.kind !== "parlay"; });
   var tickets = todo.filter(function(b){ return b.kind === "parlay"; });
-  $("nb").textContent = todo.length;
+  var picks = singles.filter(function(b){ return b.armed; });
+  var watch = singles.filter(function(b){ return !b.armed; });
+  $("nb").textContent = picks.length;
   var anyFb = singles.some(function(b){ return b.league === "nfl" || b.league === "fifa"; });
   var h = (d.split ? "<p class=\"note\"><b>Each bet is split in two:</b> half on FanDuel, half on BetMGM. Place both halves and tap <b>I placed it</b> on each. BetMGM&rsquo;s line or odds can differ a little &mdash; the card shows BetMGM&rsquo;s own." + (anyFb ? " <b>Football and soccer bets are FanDuel only.</b>" : "") + "</p>" : "")
     + "<p class=\"note\">Tap " + (d.split ? "the FanDuel or BetMGM" : "a FanDuel") + " button to load the bet, check the <b>line and odds on the slip</b> match the card (the link can’t lock the line), place it, then tap <b>I placed it</b>. If the book capped your stake, tap <b>Bet was limited</b> and enter the amount it accepted. On a phone, open this page in Safari or Chrome (not inside a texting or social app) so <b>FanDuel app</b> opens the app.</p>";
@@ -364,7 +374,10 @@ function renderBets(){
     + "<div class=\"hint\">New bets arrive bundled in one ping, a few minutes apart at most; tap it to open this board. <a href=\"#\" data-act=\"hidetip\" data-k=\"" + esc(d.alerts) + "\">Hide this</a></div></div>";
   if (d.addAll && d.live) h += "<div class=\"all\"><a class=\"btn fd sm\" href=\"" + esc(d.addAll.app) + "\" target=\"_blank\" rel=\"noopener\">Add all " + d.addAll.n + " (app)</a>"
     + "<a class=\"btn sm\" href=\"" + esc(d.addAll.web) + "\" target=\"_blank\" rel=\"noopener\">browser</a><span>Keep them as singles, one stake each.</span></div>";
-  h += todo.length ? singles.map(betCard).join("") : "<div class=\"empty\"><b>Nothing to place right now</b>New bets show up here about 10–60 minutes before tip. This page refreshes itself.</div>";
+  h += picks.length ? picks.map(betCard).join("") : "<div class=\"empty\"><b>No picks right now</b>The model only plays games in its profitable band, so most tracked games don&rsquo;t make the cut. New picks show up here about 10–60 minutes before tip. This page refreshes itself.</div>";
+  if (watch.length) h += "<details class=\"watch\"><summary>Also tracking " + watch.length + " more game" + (watch.length > 1 ? "s" : "") + " (not recommended)</summary>"
+    + "<p class=\"note\">Tracked by the model but <b>below the 64% profitable band &mdash; don&rsquo;t bet these.</b> Shown so you can see what it&rsquo;s watching.</p>"
+    + watch.map(betCard).join("") + "</details>";
   if (tickets.length) h += "<h2>Parlays &middot; " + tickets.length + "</h2><p class=\"note\">Extra tickets <b>on top of</b> the singles above, not instead of them &mdash; place the singles first. Once you place a basketball parlay, any other basketball parlay re-using one of its legs drops off this list." + (tickets.some(function(b){ return b.league === "fifa"; }) ? " Soccer parlays are exactly Matt&rsquo;s tickets and can share a leg &mdash; place each one." : "") + "</p>"
     + tickets.map(parlayCard).join("");
   $("v-bets").innerHTML = h;
