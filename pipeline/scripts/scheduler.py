@@ -213,10 +213,20 @@ def board_bets():
                 'BET (profitable band)' if rec else 'skip (below 64%% band)',
                 '' if not rec else ' | qKelly $%s' % ('%.0f' % kelly_stake)),
             'armed': rec, 'why': '' if rec else 'observer model: below the 64%% band',
-            'book': 'FanDuel', 'line': '', 'legs': []})
+            'book': (c.get('book') or 'fanduel'),
+            'web': NBA_BOOK_LINKS.get((c.get('book') or '').strip().lower(), ''),
+            'line': '', 'legs': []})
     # best EV first so the top of the card is the brain's strongest conviction
     bets.sort(key=lambda b: -float((b.get('note') or '').split('EV ')[-1].split('%')[0] or -99))
     return bets, partner
+
+
+# real book landing pages (verified 2026-11-16, all 200): the card rows carry the
+# book each pick was posted at, and each book carries these leagues at a stable URL.
+NBA_BOOK_LINKS = {
+    'betmgm': 'https://www.nj.betmgm.com/en/sports/ebasketball-119/betting/world-6/ebasketball-h2h-gg-league-108782',
+    'borgata': 'https://www.borgataonline.com/en/sports/ebasketball-119/betting/world-6/ebasketball-h2h-gg-league-108782',
+}
 
 
 def graded_rows():
