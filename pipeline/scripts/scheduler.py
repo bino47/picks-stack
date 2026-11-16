@@ -139,16 +139,24 @@ def board_bets():
                 continue
         except Exception:
             pass
-        key = 'esb:%s:%s' % (o.get('event_id'), (o.get('side') or '').strip())
-        bets.append({
-            'key': key, 'kind': 'esb', 'league': o.get('league'),
-            'match': '%s v %s' % (o.get('home'), o.get('away')),
-            'ga': o.get('home'), 'gb': o.get('away'),
-            'market': o.get('market'), 'side': o.get('side'),
-            'price': o.get('price_am'), 'stake': o.get('stake'),
-            'start': _esb_iso(o.get('time')),
-            'note': 'model %.1f%% EV %+.1f%%' % (100 * (o.get('model_p') or 0), 100 * (o.get('ev') or 0)),
-            'armed': True, 'book': 'FanDuel', 'line': '', 'legs': []})
+        base = 'esb:%s:%s' % (o.get('event_id'), (o.get('side') or '').strip())
+        note = ('model %.1f%% EV %+.1f%%' % (100 * (o.get('model_p') or 0), 100 * (o.get('ev') or 0))
+                + ' | Same game at BOTH books - place at one, then tap Skip on the other row. '
+                  'The link opens the esoccer lobby: find the same match, check odds match before betting.')
+        # both books carry these leagues (verified Nov 13): one row per book so
+        # the board's per-book buttons, links and bankroll scaling all engage.
+        for book, web in (('betmgm', 'https://www.nj.betmgm.com/en/sports/esoccer-108'),
+                          ('borgata', 'https://www.borgataonline.com/en/sports/esoccer-108')):
+            bets.append({
+                'key': base + '|' + book, 'kind': 'esb', 'league': o.get('league'),
+                'match': '%s v %s' % (o.get('home'), o.get('away')),
+                'ga': o.get('home'), 'gb': o.get('away'),
+                'market': o.get('market'), 'side': o.get('side'),
+                'price': o.get('price_am'), 'stake': o.get('stake'),
+                'start': _esb_iso(o.get('time')),
+                'note': note,
+                'armed': True, 'book': book, 'line': '', 'legs': [],
+                'web': web})
     # NBA: mirror ALL upcoming singles from the user's own board, with the
     # observer's verdict attached (armed = in the profitable >=64% band).
     try:
@@ -220,8 +228,12 @@ def graded_rows():
             return []
     for o in rows(os.path.join(HIST, 'esb_paper_ledger.jsonl')):
         if o.get('status') in ('win', 'loss', 'push'):
-            out.append({'key': 'esb:%s:%s' % (o.get('event_id'), (o.get('side') or '').strip()),
-                        'result': o['status'], 'pnl': o.get('pnl')})
+            # the board posts each esb pick as TWO rows (betmgm + borgata), so
+            # grade both suffixed keys; the un-placed twin simply never shows.
+            base = 'esb:%s:%s' % (o.get('event_id'), (o.get('side') or '').strip())
+            for book in ('betmgm', 'borgata'):
+                out.append({'key': base + '|' + book,
+                            'result': o['status'], 'pnl': o.get('pnl')})
     for name in ('model_sb_ledger.jsonl', 'model_ledger.jsonl'):
         for o in rows(os.path.join(HERE, name)):
             if o.get('result') in ('win', 'loss', 'push') and o.get('key'):
