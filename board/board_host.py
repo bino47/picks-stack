@@ -86,16 +86,20 @@ def init_db():
         if u and p:
             create_user(c, u, p, 'admin')
             print('bootstrapped first admin:', u, '- REMOVE the env vars after first login')
-    # one-time account creation from env (ADD_USERS="user:pass;user2:pass2"),
-    # set via Render API then removed — passwords never live in the repo
+    # one-time account creation from env (ADD_USERS="user:pass[;u2:p2[:role]]"),
+    # set via Render API — FREE PLAN HAS NO DISK: the sqlite DB is ephemeral and
+    # wiped on every deploy/sleep-wake, so this var must STAY SET to recreate
+    # accounts on each boot. passwords never live in the repo.
     for spec in (os.environ.get('ADD_USERS') or '').split(';'):
         spec = spec.strip()
         if not spec or ':' not in spec:
             continue
-        u, p = spec.split(':', 1)
+        parts = spec.split(':', 2)
+        u, p = parts[0], parts[1]
+        role = parts[2] if len(parts) > 2 and parts[2] else 'user'
         if u and p and not c.execute("SELECT 1 FROM users WHERE username=?", (u,)).fetchone():
-            create_user(c, u, p, 'user')
-            print('ADD_USERS: created', u)
+            create_user(c, u, p, role)
+            print('ADD_USERS: created', u, 'role', role)
     c.close()
 
 
