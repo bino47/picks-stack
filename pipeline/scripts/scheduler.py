@@ -143,10 +143,19 @@ def board_bets():
         note = ('model %.1f%% EV %+.1f%%' % (100 * (o.get('model_p') or 0), 100 * (o.get('ev') or 0))
             + ' | Same game at BOTH books - place at one, then tap Skip on the other row. ')
         # exact-game deep link: resolve once, ids are shared across both books
-        # (same Entain NJ platform). Falls back to the league lobby on any
-        # miss, so the buttons always work.
+        # (same Entain NJ platform). Unresolved picks are dropped from the
+        # board (paper-only) unless the feed itself is down, in which case
+        # lobby links serve as the fallback.
         epath = _mgm_event_path(108, o.get('home') or '', o.get('away') or '',
                                 int(o.get('time') or 0))
+        # bettable-only board: show a slip ONLY when the exact fixture is live
+        # on the books' shared feed (ids are shared, so one hit covers both
+        # rows). A miss with a healthy feed = neither book carries this game
+        # tonight -> paper bet only, keep it off the board. If the feed itself
+        # is down (empty fixture list) we can't tell, so keep the old
+        # lobby-link rows rather than blanking the board.
+        if not epath and _mgm_fixtures(108):
+            continue
         note += ('Links open the exact match - check odds match before betting.' if epath
                  else 'The link opens the esoccer lobby: find the same match, check odds match before betting.')
         # 'app' = mobile-web (sports.*): plain web page, does NOT open the app
