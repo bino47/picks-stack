@@ -145,8 +145,13 @@ def board_bets():
                   'The link opens the esoccer lobby: find the same match, check odds match before betting.')
         # both books carry these leagues (verified Nov 13): one row per book so
         # the board's per-book buttons, links and bankroll scaling all engage.
-        for book, web in (('betmgm', 'https://www.nj.betmgm.com/en/sports/esoccer-108'),
-                          ('borgata', 'https://www.borgataonline.com/en/sports/esoccer-108')):
+        # 'app' = the book's mobile-web domain (sports.*): opens the MGM app on
+        # phones when installed, mobile web otherwise. Verified 200 on 2026-11-16.
+        for book, web, app in (
+                ('betmgm', 'https://www.nj.betmgm.com/en/sports/esoccer-108',
+                 'https://sports.betmgm.com/en/sports/esoccer-108'),
+                ('borgata', 'https://www.borgataonline.com/en/sports/esoccer-108',
+                 'https://sports.borgataonline.com/en/sports/esoccer-108')):
             bets.append({
                 'key': base + '|' + book, 'kind': 'esb', 'league': o.get('league'),
                 'match': '%s v %s' % (o.get('home'), o.get('away')),
@@ -156,7 +161,7 @@ def board_bets():
                 'start': _esb_iso(o.get('time')),
                 'note': note,
                 'armed': True, 'book': book, 'line': '', 'legs': [],
-                'web': web})
+                'web': web, 'app': app})
     # NBA: mirror ALL upcoming singles from the user's own board, with the
     # observer's verdict attached (armed = in the profitable >=64% band).
     try:
@@ -215,6 +220,7 @@ def board_bets():
             'armed': rec, 'why': '' if rec else 'observer model: below the 64%% band',
             'book': (c.get('book') or 'fanduel'),
             'web': NBA_BOOK_LINKS.get((c.get('book') or '').strip().lower(), ''),
+            'app': NBA_BOOK_APPS.get((c.get('book') or '').strip().lower(), ''),
             'line': '', 'legs': []})
     # best EV first so the top of the card is the brain's strongest conviction
     bets.sort(key=lambda b: -float((b.get('note') or '').split('EV ')[-1].split('%')[0] or -99))
@@ -226,6 +232,13 @@ def board_bets():
 NBA_BOOK_LINKS = {
     'betmgm': 'https://www.nj.betmgm.com/en/sports/ebasketball-119/betting/world-6/ebasketball-h2h-gg-league-108782',
     'borgata': 'https://www.borgataonline.com/en/sports/ebasketball-119/betting/world-6/ebasketball-h2h-gg-league-108782',
+}
+
+# mobile-web twins of the above (sports.* domains, verified 200 on 2026-11-16):
+# the branded app button on the board opens these on phones.
+NBA_BOOK_APPS = {
+    'betmgm': 'https://sports.betmgm.com/en/sports/ebasketball-119/betting/world-6/ebasketball-h2h-gg-league-108782',
+    'borgata': 'https://sports.borgataonline.com/en/sports/ebasketball-119/betting/world-6/ebasketball-h2h-gg-league-108782',
 }
 
 
