@@ -275,6 +275,9 @@ def board_bets():
 NBA_BOOK_LINKS = {
     'betmgm': 'https://www.nj.betmgm.com/en/sports/ebasketball-119/betting/world-6/ebasketball-h2h-gg-league-108782',
     'borgata': 'https://www.borgataonline.com/en/sports/ebasketball-119/betting/world-6/ebasketball-h2h-gg-league-108782',
+    # FanDuel: no exact-event resolver yet, so link its eBasketball lobby.
+    # FD row keys carry no __BOOK suffix and the model prices them at FD odds.
+    'fanduel': 'https://sportsbook.fanduel.com/sports/basketball-5',
 }
 
 # mobile-web twins of the above (sports.* domains, verified 200 on 2026-11-16):
@@ -282,6 +285,7 @@ NBA_BOOK_LINKS = {
 NBA_BOOK_APPS = {
     'betmgm': 'https://sports.betmgm.com/en/sports/ebasketball-119/betting/world-6/ebasketball-h2h-gg-league-108782',
     'borgata': 'https://sports.borgataonline.com/en/sports/ebasketball-119/betting/world-6/ebasketball-h2h-gg-league-108782',
+    'fanduel': 'https://sportsbook.fanduel.com/sports/basketball-5',
 }
 
 
