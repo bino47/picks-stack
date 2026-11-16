@@ -74,6 +74,13 @@ def init_db():
       user_id INTEGER PRIMARY KEY, payload TEXT NOT NULL);
     """)
     c.commit()
+    # HARD RESET on every boot: the host idles/wakes (free tier) and each wake is a
+    # fresh session — clear all placed bets so the board starts clean (user request).
+    n = c.execute("SELECT COUNT(*) FROM placements").fetchone()[0]
+    if n:
+        c.execute("DELETE FROM placements")
+        c.commit()
+        print(f'boot reset: cleared {n} placement(s)')
     if not c.execute("SELECT COUNT(*) FROM users").fetchone()[0]:
         u, p = os.environ.get('FIRST_ADMIN_USERNAME'), os.environ.get('FIRST_ADMIN_PASSWORD')
         if u and p:
