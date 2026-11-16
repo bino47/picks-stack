@@ -145,8 +145,12 @@ def board_bets():
                   'The link opens the esoccer lobby: find the same match, check odds match before betting.')
         # both books carry these leagues (verified Nov 13): one row per book so
         # the board's per-book buttons, links and bankroll scaling all engage.
-        # 'app' = the book's mobile-web domain (sports.*): opens the MGM app on
-        # phones when installed, mobile web otherwise. Verified 200 on 2026-11-16.
+        # 'app' = mobile-web (sports.*): plain web page, does NOT open the app
+        # by itself. The BOARD front-end (index.html appHref()) rewrites these
+        # to Android intent:// deep links with the real package names
+        # (com.playmgm.nj.sports / com.borgata.nj.sports). iPhone still gets
+        # the web link: MGM's universal links are broken by their Redirex
+        # 302 layer, and no public betmgm:// scheme is documented (2026-11-16).
         for book, web, app in (
                 ('betmgm', 'https://www.nj.betmgm.com/en/sports/esoccer-108',
                  'https://sports.betmgm.com/en/sports/esoccer-108'),

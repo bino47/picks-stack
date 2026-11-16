@@ -280,6 +280,23 @@ function modelTag(b){
   return "<div class=\"model-tag " + cls + "\" title=\"Observer model projection — advisory only, does not affect placement\">" + lab + "</div>";
 }
 
+// The raw https://sports.* links open mobile WEB, not the app: the MGM domains
+// are not usable universal links (their AASA fetch gets 302'd by the Redirex
+// geo layer, and Apple requires no redirects). On Android we rewrite to an
+// intent:// link with the real package so Chrome opens the installed app
+// (packages verified via Google Play 2026-11-16); browser_fallback_url keeps
+// mobile web as the fallback. iPhone: no public URL scheme for the MGM apps
+// exists, so it keeps the web link until we find one.
+function appHref(b){
+  var u = b.app || "";
+  if (!u || !/Android/i.test(navigator.userAgent) || u.indexOf("https://") !== 0) return u;
+  var pkg = b.book === "betmgm" ? "com.playmgm.nj.sports"
+          : (b.book === "borgata" ? "com.borgata.nj.sports" : "");
+  if (!pkg) return u;
+  return "intent://" + u.slice(8) + "#Intent;scheme=https;package=" + pkg
+       + ";S.browser_fallback_url=" + encodeURIComponent(u) + ";end";
+}
+
 function betCard(b){
   var k = esc(b.key), st = mins(b.start), ed = EDIT[b.key] || {};
   var book = b.book, mg = book === "betmgm", bga = book === "borgata";
@@ -298,7 +315,7 @@ function betCard(b){
   if (!on) h += "<div class=\"why\">Not placeable right now: " + esc(b.why || DATA.why || "board not live") + "</div>";
   if (b.note) h += "<div class=\"why\">" + esc(b.note) + "</div>";
   h += "<div class=\"row\">"
-    + (on && b.app ? "<a class=\"btn " + (mg ? "mg" : (bga ? "bga" : "fd")) + "\" href=\"" + esc(b.app) + "\" target=\"_blank\" rel=\"noopener\">" + bk + " app</a>" : "<span class=\"btn " + (mg ? "mg" : (bga ? "bga" : "fd")) + "\" disabled>" + bk + " app</span>")
+    + (on && b.app ? "<a class=\"btn " + (mg ? "mg" : (bga ? "bga" : "fd")) + "\" href=\"" + esc(appHref(b)) + "\" target=\"_blank\" rel=\"noopener\">" + bk + " app</a>" : "<span class=\"btn " + (mg ? "mg" : (bga ? "bga" : "fd")) + "\" disabled>" + bk + " app</span>")
     + (on && b.web ? "<a class=\"btn\" href=\"" + esc(b.web) + "\" target=\"_blank\" rel=\"noopener\">Browser</a>" : "<span class=\"btn\" disabled>Browser</span>")
     + "</div>";
   if (!OPEN[b.key]) {
@@ -337,7 +354,7 @@ function parlayCard(b){
   if (!on) h += "<div class=\"why\">Not placeable right now: " + esc(b.why || DATA.why || "board not live") + "</div>";
   h += "<div class=\"hint\">The button loads all " + n + " legs. In the " + bk + " slip put <b>" + esc(usd(stake(b))) + " on the Parlay line</b> (not on the straight bets), check every leg is there, and check the parlay odds are about <b>" + esc(am(b.price)) + "</b>.</div>"
     + "<div class=\"row\">"
-    + (on && b.app ? "<a class=\"btn " + (mg ? "mg" : (bga ? "bga" : "fd")) + "\" href=\"" + esc(b.app) + "\" target=\"_blank\" rel=\"noopener\">" + bk + " app</a>" : "<span class=\"btn " + (mg ? "mg" : (bga ? "bga" : "fd")) + "\" disabled>" + bk + " app</span>")
+    + (on && b.app ? "<a class=\"btn " + (mg ? "mg" : (bga ? "bga" : "fd")) + "\" href=\"" + esc(appHref(b)) + "\" target=\"_blank\" rel=\"noopener\">" + bk + " app</a>" : "<span class=\"btn " + (mg ? "mg" : (bga ? "bga" : "fd")) + "\" disabled>" + bk + " app</span>")
     + (on && b.web ? "<a class=\"btn\" href=\"" + esc(b.web) + "\" target=\"_blank\" rel=\"noopener\">Browser</a>" : "<span class=\"btn\" disabled>Browser</span>")
     + "</div>";
   if (!OPEN[b.key]) {
