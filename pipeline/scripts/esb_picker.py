@@ -16,7 +16,11 @@ HIST = os.environ.get('SCORER_HISTORY_DIR') or os.path.join(HERE, 'history')
 LEDGER = os.path.join(HIST, 'esb_paper_ledger.jsonl')
 TOK = (os.environ.get('BETSAPI_KEY') or '').strip() or open(os.path.join(HERE, 'betsapi_key.txt'), encoding='utf-8').read().strip()
 UA = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://betsapi.com/'}
-LEAGUES = {22614: 'battle8', 38439: 'volta6'}
+# 37298 = bet365 "Esoccer H2H GG League - 8 mins play" — the SIS H2H GG feed
+# under its bet365 label. Added 2026-11-16 for the user's bet365 picks stream.
+# NOT confirmed carried by BetMGM/Borgata under this label: picker rows for
+# this league are tagged book='bet365' only (board shows a single bet365 row).
+LEAGUES = {22614: 'battle8', 38439: 'volta6', 37298: 'h2hggl8'}
 # Both leagues are carried by BetMGM/Borgata (volta6 = MGM's "Battle Volta
 # Champions League A 2x3 Minutes" — verified Nov 13 from the user's own
 # esoccer-108 page link; an earlier "not carried" conclusion was wrong: the

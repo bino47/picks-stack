@@ -16,7 +16,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(os.environ.get('SCORER_HISTORY_DIR', HERE), 'esb_games.jsonl')
 TOK = (os.environ.get('BETSAPI_KEY') or '').strip() or open(os.path.join(HERE, 'betsapi_key.txt'), encoding='utf-8').read().strip()
 UA = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://betsapi.com/'}
-LEAGUES = {22614: 'battle8', 38439: 'volta6'}
+LEAGUES = {22614: 'battle8', 38439: 'volta6', 37298: 'h2hggl8'}
 MAX_PAGES = 40          # 50 per page -> up to 2000 games per league
 
 
