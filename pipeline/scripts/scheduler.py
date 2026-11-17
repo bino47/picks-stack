@@ -11,6 +11,7 @@ Web endpoints (for the local boards / any viewer to pull):
   GET /data      {esb_ledger, model_sb_ledger, kalshi state}
 """
 import json, os, re, subprocess, sys, threading, time, calendar, datetime as dt
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -112,6 +113,112 @@ def _esb_iso(ts):
         return dt.datetime.fromtimestamp(int(ts), dt.timezone.utc).isoformat()
     except Exception:
         return ''
+
+
+# --- FanDuel FIFA (esoccer) picks ---------------------------------------------
+# The observer scores the friend board's FIFA rows (FIFA_<hash>_* keys). To put
+# them on OUR board with one-click FanDuel slips, join those keys back to the
+# friend's live /data, which carries the addToBetslip URLs, real club names and
+# tip time. Bettable-only: no friend row = nothing to point at = no row.
+FRIEND_BASE = "https://picks.001msk001.cc/p/ZKHxK1Wrkl88RjbayhBkSaUspEjM_fqw"
+_FRIEND = {'at': 0.0, 'data': None}
+
+
+def _friend_card(max_age=120):
+    now = time.time()
+    if _FRIEND['data'] is not None and now - _FRIEND['at'] < max_age:
+        return _FRIEND['data']
+    try:
+        req = urllib.request.Request(FRIEND_BASE + '/data',
+                                     headers={'User-Agent': 'Mozilla/5.0'})
+        data = json.loads(urllib.request.urlopen(req, timeout=25).read().decode())
+        _FRIEND.update(at=now, data=data)
+        return data
+    except Exception:
+        return None
+
+
+def _grade_fifa(o, games_by_date):
+    """win/loss/push for one posted FIFA pick, or None while ungraded.
+
+    Matches the finished H2H-feed game by unordered alias pair + nearest start
+    within 10 min (esoccer replays the same pairing several times a day).
+    Finished-game entries store aliases SORTED, so they do NOT align with the
+    score array — map each alias to its score index via the club brand in
+    fdName ("Napoli (EXECUTIONER) ...") against the entry's teams.
+    """
+    try:
+        st = dt.datetime.fromisoformat((o.get('start') or '').replace('Z', '+00:00'))
+    except Exception:
+        return None
+    if st > dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=20):
+        return None  # tip + ~15 min match: not finished yet
+    ga_u, gb_u = str(o.get('ga') or '').upper(), str(o.get('gb') or '').upper()
+    if not ga_u or not gb_u or ga_u == gb_u:
+        return None
+    best = None
+    # The feed buckets games under the SCHEDULE date (US Eastern), so a
+    # late-night UTC start can sit in the previous day's bucket — check both.
+    day = dt.timedelta(days=1)
+    pool = (games_by_date.get(st.strftime('%Y-%m-%d')) or []) \
+         + (games_by_date.get((st - day).strftime('%Y-%m-%d')) or []) \
+         + (games_by_date.get((st + day).strftime('%Y-%m-%d')) or [])
+    for g in pool:
+        if set(g.get('aliases') or []) != {ga_u, gb_u}:
+            continue
+        if (g.get('status') or '') != 'MATCH_ENDED':
+            continue
+        try:
+            gst = dt.datetime.fromisoformat(str(g.get('start') or '').replace('Z', '+00:00'))
+        except Exception:
+            continue
+        dmin = abs((gst - st).total_seconds()) / 60.0
+        if dmin <= 10 and (best is None or dmin < best[0]):
+            best = (dmin, g)
+    if not best:
+        return None
+    g = best[1]
+    score = g.get('score') or []
+    if len(score) != 2:
+        return None
+    fdn = str(o.get('fdName') or '')
+    idx = {}
+    # split on the versus separator so the second alias's brand text can't
+    # swallow " v " — each half is "<Brand> (<Alias>)".
+    for half in re.split(r'\s+v\s+', fdn):
+        m = re.search(r'\(\s*([A-Za-z0-9 ]+)\s*\)', half)
+        if not m:
+            continue
+        alias = m.group(1).strip().upper()
+        brand = half[:m.start()].strip().upper()
+        if alias in (ga_u, gb_u) and brand:
+            for i, t in enumerate(g.get('teams') or []):
+                if str(t).strip().upper() == brand:
+                    idx[alias] = i
+                    break
+    if ga_u not in idx or gb_u not in idx or idx[ga_u] == idx[gb_u]:
+        return None
+    marg = score[idx[ga_u]] - score[idx[gb_u]]  # ga goals minus gb goals
+    side = (o.get('side') or '').strip()
+    m = re.match(r'(?i)^(Over|Under)\s+([\d.]+)$', side)
+    if m:
+        tot = score[idx[ga_u]] + score[idx[gb_u]]
+        line = float(m.group(2))
+        if tot > line:
+            return 'win' if m.group(1).lower() == 'over' else 'loss'
+        if tot < line:
+            return 'loss' if m.group(1).lower() == 'over' else 'win'
+        return 'push'
+    m = re.match(r'(?i)^(%s|%s)\s+([+-]?[\d.]+)$' % (re.escape(ga_u), re.escape(gb_u)), side)
+    if m:
+        d = marg if m.group(1).upper() == ga_u else -marg
+        adj = d + float(m.group(2))
+        return 'win' if adj > 0 else ('push' if abs(adj) < 1e-9 else 'loss')
+    m = re.match(r'(?i)^(%s|%s)\s+to\s+win$' % (re.escape(ga_u), re.escape(gb_u)), side)
+    if m:
+        d = marg if m.group(1).upper() == ga_u else -marg
+        return 'win' if d > 0 else ('push' if d == 0 else 'loss')
+    return None
 
 
 def board_bets():
@@ -271,6 +378,58 @@ def board_bets():
             'web': links[0] if links else NBA_BOOK_LINKS.get(nb, ''),
             'app': links[1] if links else NBA_BOOK_APPS.get(nb, ''),
             'line': '', 'legs': []})
+    # FIFA (esoccer) singles: observer-scored rows joined to the friend's live
+    # card for the one-click FanDuel slip links, club names and tip time.
+    # Each posted key is appended to fifa_board_ledger.jsonl so /graded can
+    # settle it against the H2H feed results later.
+    friend = _friend_card() or {}
+    fby = {b.get('key'): b for b in (friend.get('bets') or [])}
+    led_path = os.path.join(HIST, 'fifa_board_ledger.jsonl')
+    try:
+        seen_led = {json.loads(x).get('key') for x in (read(led_path) or '').splitlines() if x.strip()}
+    except Exception:
+        seen_led = set()
+    new_led = []
+    for c in card.get('card', []):
+        if c.get('league') != 'fifa' or not c.get('bet'):
+            continue
+        f = fby.get(c.get('key'))
+        if not f or not f.get('start'):
+            continue  # friend's card rotated: nothing to link -> off the board
+        try:
+            if dt.datetime.fromisoformat(f['start']) < dt.datetime.now(dt.timezone.utc):
+                continue  # already kicked off
+        except Exception:
+            pass
+        bets.append({
+            'key': c.get('key'), 'kind': 'fifa', 'league': 'fifa',
+            'lgName': 'FanDuel: Soccer > Esports — esoccer clubs (H2H)',
+            'match': '%s v %s' % (f.get('ga') or '?', f.get('gb') or '?'),
+            'ga': f.get('ga'), 'gb': f.get('gb'),
+            'fdName': f.get('fdName'),
+            'market': c.get('market'), 'side': c.get('side'),
+            'price': c.get('price'), 'stake': c.get('stake'),
+            'start': f.get('start'),
+            'note': ('observer: model %.1f%% EV %+.1f%% -> BET (profitable band)'
+                     ' | FanDuel: the button loads the exact selection - check'
+                     ' the odds on the slip match before betting.'
+                     % (float(c.get('model_win') or 0), 100 * float(c.get('ev') or 0))),
+            'armed': True, 'book': 'fanduel', 'line': '', 'legs': [],
+            'web': f.get('web') or '', 'app': f.get('app') or f.get('web') or ''})
+        if c.get('key') not in seen_led:
+            seen_led.add(c.get('key'))
+            new_led.append(json.dumps({
+                'key': c.get('key'), 'ga': f.get('ga'), 'gb': f.get('gb'),
+                'fdName': f.get('fdName'), 'start': f.get('start'),
+                'market': c.get('market'), 'side': c.get('side'),
+                'price': c.get('price'), 'stake': c.get('stake'),
+                'posted': dt.datetime.now(dt.timezone.utc).isoformat()}))
+    if new_led:
+        try:
+            with open(led_path, 'a', encoding='utf-8') as fh:
+                fh.write('\n'.join(new_led) + '\n')
+        except Exception:
+            pass
     # best EV first so the top of the card is the brain's strongest conviction
     bets.sort(key=lambda b: -float((b.get('note') or '').split('EV ')[-1].split('%')[0] or -99))
     return bets, partner
@@ -413,6 +572,17 @@ def graded_rows():
         for o in rows(os.path.join(HERE, name)):
             if o.get('result') in ('win', 'loss', 'push') and o.get('key'):
                 out.append({'key': o['key'], 'result': o['result'], 'pnl': o.get('pnl')})
+    # FIFA picks posted to the board: grade against the H2H feed results
+    # ($HIST/history/real_games.json, written by the scorer's feed fetcher).
+    try:
+        games = json.load(open(os.path.join(HIST, 'history', 'real_games.json'))).get('by_date', {})
+    except Exception:
+        games = {}
+    for o in rows(os.path.join(HIST, 'fifa_board_ledger.jsonl')):
+        res = _grade_fifa(o, games)
+        if res:
+            # pnl is computed board-side from the placement's own price/stake
+            out.append({'key': o.get('key'), 'result': res, 'pnl': None})
     return out
 
 
