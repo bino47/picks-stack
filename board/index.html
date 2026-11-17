@@ -544,15 +544,34 @@ function simsStat(rows, name){
 // resolver (both books share event ids). Rows without links (book doesn't
 // carry the game, or bet365-only leagues the resolver can't see) get none.
 // appHref() rewrites the app URL per platform exactly like the To-place tab.
-function slipLinks(x){
-  var out="";
-  [["betmgm","BetMGM","mg"],["borgata","Borgata","bga"]].forEach(function(b){
-    var L=(x.lk||{})[b[0]];
-    if(!L) return;
-    if(L.app) out+="<a class=\"btn sm "+b[2]+"\" href=\""+esc(appHref({book:b[0],app:L.app}))+"\" target=\"_blank\" rel=\"noopener\">"+b[1]+" app</a>";
-    if(L.web) out+="<a class=\"btn sm\" href=\""+esc(L.web)+"\" target=\"_blank\" rel=\"noopener\">"+(L.app?"":" "+b[1]+" ")+"Browser</a>";
+// Open sims split into per-book slips: the /board card enriches open ledger
+// rows with links.betmgm/borgata {web, app} (Entain resolver, both books share
+// event ids), so each sim becomes a BetMGM + a Borgata twin, grouped under
+// book headers and filtered with the SAME chips/state as the To-place tab
+// (bookChips + shared BOOKF). Sims the books don't carry (resolver miss or
+// bet365-only leagues) stay paper in the collapsed tail — no buttons, like
+// the To-place tab drops uncarried rows.
+function simLeft(x){
+  return "<div class=\"l\"><div class=\"t\">"+esc(x.p||"")+" <span class=\"bk\">"+esc(x.src)+"</span>"+(x.lg?" <span class=\"bk\">"+esc(x.lg)+"</span>":"")+"</div>"
+    +"<div class=\"s\">"+esc(x.t)+" &middot; model "+x.pw+"% &middot; EV "+(x.ev!=null?"+"+Math.round(100*(x.ev||0))+"%":"–")+" &middot; "+(x.am!=null?esc(am(x.am)):(x.dec?esc(x.dec.toFixed(2)):""))+" &middot; sim stake "+esc(usd(x.st,true))+(x.when?" &middot; start "+esc(tm(x.when)):"")+"</div></div>";
+}
+function simSlip(s){
+  var mg = s.book === "betmgm";
+  return "<div class=\"item\">"+simLeft(s.x)
+    +"<div class=\"r slbtns\">"
+    +(s.L.app?"<a class=\"btn sm"+(mg?" mg":" bga")+"\" href=\""+esc(appHref({book:s.book,app:s.L.app}))+"\" target=\"_blank\" rel=\"noopener\">App</a>":"")
+    +(s.L.web?"<a class=\"btn sm\" href=\""+esc(s.L.web)+"\" target=\"_blank\" rel=\"noopener\">Browser</a>":"")
+    +"</div></div>";
+}
+function paperRow(x){ return "<div class=\"item\">"+simLeft(x)+"</div>"; }
+function simsByBook(list){
+  var g = {}, out = "";
+  list.forEach(function(s){ (g[s.book] = g[s.book] || []).push(s); });
+  BOOKS.forEach(function(b){
+    var rows = g[b[0]];
+    if (rows && rows.length) out += "<h2>"+esc(b[1])+" &middot; "+rows.length+" slip"+(rows.length>1?"s":"")+"</h2><div class=\"card\">"+rows.map(simSlip).join("")+"</div>";
   });
-  return out?"<div class=\"r\">"+out+"</div>":"";
+  return out;
 }
 
 function renderSims(){
@@ -567,17 +586,22 @@ function renderSims(){
       return {t:r.match||"", p:r.pick, am:r.book_price, dec:null, pw:r.model_win, ev:r.ev, st:r.stake, when:r.start?Date.parse(r.start):null, lg:r.league, src:"2K @ books", lk:r.links||{}};
     })
   ).sort(function(a,b){return (a.when||0)-(b.when||0);});
-  h+="<h2>Open sims &middot; "+open.length+"</h2><div class=\"card\">"+(open.length?open.map(function(x){
-    // Open sims carry the same exact-match Entain links as To-place rows
-    // (pipeline enriches open rows in the /board card): BetMGM + Borgata
-    // buttons open the match at the books — check odds before staking real
-    // money on a sim. Rows with no links (book doesn't carry the game, or
-    // bet365-only leagues) render no buttons, like the To-place tab.
-    return "<div class=\"item\"><div class=\"l\"><div class=\"t\">"+esc(x.p||"")+" <span class=\"bk\">"+esc(x.src)+"</span>"+(x.lg?" <span class=\"bk\">"+esc(x.lg)+"</span>":"")+"</div>"
-      +"<div class=\"s\">"+esc(x.t)+" &middot; model "+x.pw+"% &middot; EV "+(x.ev!=null?"+"+Math.round(100*(x.ev||0))+"%":"–")+" &middot; "+(x.am!=null?esc(am(x.am)):(x.dec?esc(x.dec.toFixed(2)):""))+" &middot; sim stake "+esc(usd(x.st,true))+(x.when?" &middot; start "+esc(tm(x.when)):"")+"</div></div>"
-      +slipLinks(x)
-      +"</div>";
-  }).join(""):"<div class=\"empty\"><b>No open sims right now</b>New simulated picks appear here about 10–60 minutes before tip.</div>")+"</div>";
+  var slips=[], nolink=[];
+  open.forEach(function(x){
+    var hit=false;
+    ["betmgm","borgata"].forEach(function(b){ var L=(x.lk||{})[b]; if(L&&L.web){hit=true; slips.push({book:b,L:L,x:x});} });
+    if(!hit) nolink.push(x);
+  });
+  var counts={}, total=slips.length;
+  slips.forEach(function(s){ counts[s.book]=(counts[s.book]||0)+1; });
+  h+="<h2>Open sims &middot; "+open.length+"</h2>";
+  if(total){
+    if(BOOKF!=="all"&&!counts[BOOKF]) BOOKF="all"; // book ran dry -> fall back
+    var shown=BOOKF==="all"?slips:slips.filter(function(s){return s.book===BOOKF;});
+    h+=bookChips(counts,total)
+      +(BOOKF==="all"?simsByBook(shown):"<div class=\"card\">"+shown.map(simSlip).join("")+"</div>");
+  } else h+="<div class=\"card\"><div class=\"empty\"><b>No open sims right now</b>New simulated picks appear here about 10&ndash;60 minutes before tip.</div></div>";
+  if(nolink.length) h+="<details class=\"watch\"><summary>Paper only &middot; "+nolink.length+" not carried at the books</summary><div class=\"card\">"+nolink.map(paperRow).join("")+"</div></details>";
   var done=esb.filter(function(r){return ["win","loss","push"].indexOf(String(r.status||"").toLowerCase())>=0;})
     .concat(msb.filter(function(r){return ["settled"].indexOf(String(r.status||"").toLowerCase())>=0;}));
   if(done.length){
