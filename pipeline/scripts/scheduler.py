@@ -23,6 +23,7 @@ JOBS = [
     # (name, interval_s, script, args)
     ('esb_cycle', 600, 'esb_cycle.py', []),
     ('model_book', 600, 'model_sb_paper.py', []),
+    ('bb_cycle', 600, 'esb_bb_cycle.py', []),
     ('kalshi_recorder', 7200, 'kalshi_esports_recorder.py', []),
     ('scorer_cycle', 600, '', []),
 ]
@@ -308,6 +309,57 @@ def board_bets():
                 'note': note,
                 'armed': True, 'book': book, 'line': '', 'legs': [],
                 'web': web, 'app': app})
+    # BB (eBasketball GG 4x5): OUR OWN ridge picks vs real MGM lines — the
+    # friend card only posts a couple of totals fixtures a night, these supply
+    # the 2K volume (ML/Spread/Total). Open paper-ledger rows only; twins at
+    # both Entain books like the esoccer rows (ids shared, price is MGM's).
+    try:
+        bbrows = [json.loads(x) for x in (read(os.path.join(HIST, 'esb_bb_paper_ledger.jsonl')) or '').splitlines() if x.strip()]
+    except Exception:
+        bbrows = []
+    for o in bbrows:
+        if o.get('status') != 'open':
+            continue
+        try:
+            if int(o.get('start_ts') or 0) < time.time():
+                continue   # kicked off: stays paper-only, keep off the board
+        except Exception:
+            pass
+        # exact fixture link from the MGM id captured at pick time; fall back
+        # to the league lobby if the fixture rotated off the feed
+        p119 = ''
+        if o.get('fid'):
+            slug = '-'.join(re.sub(r'[^a-z0-9]+', ' ', (o.get('event') or '').lower()).split())
+            p119 = 'events/%s-%s' % (slug, o['fid'])
+        if not p119:
+            p119 = _mgm_event_path(119, o.get('home') or '', o.get('away') or '',
+                                  int(o.get('start_ts') or 0))
+        base = 'bb:%s' % o.get('bbid')
+        mkt = {'ML': 'Moneyline', 'SPREAD': 'Spread', 'TOTAL': 'Total'}.get(
+            o.get('market'), o.get('market'))
+        for book in ('betmgm', 'borgata'):
+            lobby = NBA_BOOK_LINKS.get(book, '')
+            if p119:
+                web = 'https://www.nj.betmgm.com/en/sports/' + p119 if book == 'betmgm' \
+                    else 'https://www.borgataonline.com/en/sports/' + p119
+                app = 'https://sports.betmgm.com/en/sports/' + p119 if book == 'betmgm' \
+                    else 'https://sports.borgataonline.com/en/sports/' + p119
+            else:
+                web = lobby
+                app = NBA_BOOK_APPS.get(book, lobby)
+            bets.append({
+                'key': base + '|' + book, 'kind': 'nba', 'league': 'nba',
+                'lgName': 'eBasketball H2H GG League - 4x5 mins — on the app: Basketball > E-Basketball',
+                'match': '%s v %s' % (o.get('home'), o.get('away')),
+                'ga': o.get('home'), 'gb': o.get('away'),
+                'market': mkt, 'side': o.get('side'),
+                'price': o.get('price_am'), 'stake': o.get('stake'),
+                'start': o.get('start'),
+                'note': ('our ridge: model %.1f%% EV %+.1f%% vs the MGM line | check the '
+                         'odds on the slip match before betting.'
+                         % (100 * (o.get('p_model') or 0), 100 * (o.get('ev') or 0))),
+                'armed': True, 'book': book, 'line': '', 'legs': [],
+                'web': web, 'app': app})
     # NBA: mirror ALL upcoming singles from the user's own board, with the
     # observer's verdict attached (armed = in the profitable >=64% band).
     try:
@@ -569,6 +621,13 @@ def graded_rows():
             for book in books:
                 out.append({'key': base + '|' + book,
                             'result': o['status'], 'pnl': o.get('pnl')})
+    # our own eBasketball GG ridge picks (posted as betmgm/borgata twins)
+    for o in rows(os.path.join(HIST, 'esb_bb_paper_ledger.jsonl')):
+        if o.get('status') == 'settled' and o.get('result') in ('win', 'loss', 'push'):
+            base = 'bb:%s' % o.get('bbid')
+            for book in ('betmgm', 'borgata'):
+                out.append({'key': base + '|' + book,
+                            'result': o['result'], 'pnl': o.get('pnl')})
     for name in ('model_sb_ledger.jsonl', 'model_ledger.jsonl'):
         for o in rows(os.path.join(HERE, name)):
             if o.get('result') in ('win', 'loss', 'push') and o.get('key'):
