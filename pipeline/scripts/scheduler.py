@@ -634,6 +634,50 @@ def _mgm_links(path, book):
     return (www + path, app + path)
 
 
+def _iso_ts(iso):
+    """unix ts from an ISO datetime string, 0 on any failure"""
+    try:
+        return dt.datetime.fromisoformat(iso).timestamp()
+    except Exception:
+        return 0.0
+
+
+def _enrich_sims(text, sport, home_fn, away_fn, ts_fn):
+    """Ledger JSONL text with BetMGM/Borgata slip links added to open rows.
+
+    Sims are paper bets priced at the Entain books; the board's Sims tab
+    shows the open ones. Attach the same exact-match deep links the
+    To-place rows get (both books share ids, one resolution serves both).
+    Rows that don't resolve (book doesn't carry the game, or bet365-only
+    leagues which the Entain resolver can't see) serve without links and
+    the front-end shows no buttons. Never rewrites the ledger on disk:
+    this runs on the /board response only.
+    """
+    out, memo = [], {}
+    for line in (text or '').splitlines():
+        if not line.strip():
+            continue
+        try:
+            o = json.loads(line)
+        except Exception:
+            out.append(line)
+            continue
+        if sport and (o.get('status') or '').lower() == 'open':
+            sig = (home_fn(o), away_fn(o), ts_fn(o))
+            if sig not in memo:
+                memo[sig] = _mgm_event_path(sport, sig[0] or '', sig[1] or '',
+                                             sig[2]) or ''
+            links = {}
+            for book in ('betmgm', 'borgata'):
+                L = _mgm_links(memo[sig], book)
+                if L:
+                    links[book] = {'web': L[0], 'app': L[1]}
+            if links:
+                o['links'] = links
+        out.append(json.dumps(o))
+    return '\n'.join(out)
+
+
 def graded_rows():
     out = []
     def rows(path):
@@ -697,9 +741,19 @@ class H(BaseHTTPRequestHandler):
                                'partner': partner, 'model': partner,
                                'partners': [partner], 'liveBankroll': {},
                                # Sims tab feeds: model paper ledgers (graded +
-                               # open rows) for the board's Sims tab
-                               'esb_ledger': read_tail(os.path.join(HIST, 'esb_paper_ledger.jsonl'), 400),
-                               'model_sb_ledger': read_tail(os.path.join(HERE, 'model_sb_ledger.jsonl'), 400),
+                               # open rows) for the board's Sims tab. Open
+                               # rows are enriched with BetMGM/Borgata slip
+                               # links (Entain resolver; bet365-only leagues
+                               # carry none).
+                               'esb_ledger': _enrich_sims(
+                                   read_tail(os.path.join(HIST, 'esb_paper_ledger.jsonl'), 400), 108,
+                                   lambda o: o.get('home'), lambda o: o.get('away'),
+                                   lambda o: int(o.get('time') or 0)),
+                               'model_sb_ledger': _enrich_sims(
+                                   read_tail(os.path.join(HERE, 'model_sb_ledger.jsonl'), 400), 119,
+                                   lambda o: (o.get('match') or ' v ').split(' v ')[0],
+                                   lambda o: (o.get('match') or ' v ').split(' v ')[-1],
+                                   lambda o: _iso_ts(o.get('start'))),
                                'bets': bets}).encode()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')

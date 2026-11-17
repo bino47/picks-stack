@@ -105,6 +105,7 @@ border:1px solid var(--line);background:var(--card);color:var(--ink)}
 .item{display:flex;justify-content:space-between;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)}
 .item:last-child{border-bottom:0}.item .l{min-width:0}.item .t{font-weight:700}
 .item .s{font-size:12.5px;color:var(--muted)}.item .r{text-align:right;white-space:nowrap}
+.item .r.slbtns{white-space:normal;display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;align-items:center}
 .res{display:inline-block;font-size:11.5px;font-weight:800;padding:2px 8px;border-radius:10px;
 background:var(--chip);color:var(--muted)}
 .res.win{background:var(--okbg);color:var(--ok)}.res.loss{background:var(--badbg);color:var(--bad)}
@@ -391,6 +392,28 @@ function parlayCard(b){
   return h + "</article>";
 }
 
+// Group pick cards under the book they're bet at. FanDuel first (the
+// unrestricted book), then the Entain twins, then bet365 (h2hggl esoccer
+// only). Within a group the global EV order is preserved.
+var BOOKS = [["fanduel", "FanDuel"], ["betmgm", "BetMGM"], ["borgata", "Borgata"], ["bet365", "bet365"]];
+function byBook(list){
+  var g = {}, out = "";
+  list.forEach(function(b){
+    var k = b.book || "fanduel";
+    (g[k] = g[k] || []).push(b);
+  });
+  BOOKS.concat(Object.keys(g).filter(function(k){
+      return !BOOKS.some(function(x){ return x[0] === k; });
+    }).map(function(k){ return [k, k]; }))
+  .forEach(function(x){
+    var rows = g[x[0]];
+    if (rows && rows.length)
+      out += "<h2>" + esc(x[1]) + " &middot; " + rows.length + " pick" + (rows.length > 1 ? "s" : "") + "</h2>"
+           + rows.map(betCard).join("");
+  });
+  return out;
+}
+
 function renderBets(){
   var d = DATA, mine = d.mine || {};
   var todo = (d.bets || []).filter(function(b){ return !mine[b.key]; });
@@ -410,10 +433,10 @@ function renderBets(){
     + "<div class=\"hint\">New bets arrive bundled in one ping, a few minutes apart at most; tap it to open this board. <a href=\"#\" data-act=\"hidetip\" data-k=\"" + esc(d.alerts) + "\">Hide this</a></div></div>";
   if (d.addAll && d.live) h += "<div class=\"all\"><a class=\"btn fd sm\" href=\"" + esc(d.addAll.app) + "\" target=\"_blank\" rel=\"noopener\">Add all " + d.addAll.n + " (app)</a>"
     + "<a class=\"btn sm\" href=\"" + esc(d.addAll.web) + "\" target=\"_blank\" rel=\"noopener\">browser</a><span>Keep them as singles, one stake each.</span></div>";
-  h += picks.length ? picks.map(betCard).join("") : "<div class=\"empty\"><b>No picks right now</b>The model only plays games in its profitable band, so most tracked games don&rsquo;t make the cut. New picks show up here about 10–60 minutes before tip. This page refreshes itself.</div>";
+  h += picks.length ? byBook(picks) : "<div class=\"empty\"><b>No picks right now</b>The model only plays games in its profitable band, so most tracked games don&rsquo;t make the cut. New picks show up here about 10–60 minutes before tip. This page refreshes itself.</div>";
   if (watch.length) h += "<details class=\"watch\"><summary>Also tracking " + watch.length + " more game" + (watch.length > 1 ? "s" : "") + " (not recommended)</summary>"
     + "<p class=\"note\">Tracked by the model but <b>below the 64% profitable band &mdash; don&rsquo;t bet these.</b> Shown so you can see what it&rsquo;s watching.</p>"
-    + watch.map(betCard).join("") + "</details>";
+    + byBook(watch) + "</details>";
   if (tickets.length) h += "<h2>Parlays &middot; " + tickets.length + "</h2><p class=\"note\">Extra tickets <b>on top of</b> the singles above, not instead of them &mdash; place the singles first. Once you place a basketball parlay, any other basketball parlay re-using one of its legs drops off this list." + (tickets.some(function(b){ return b.league === "fifa"; }) ? " Soccer parlays are exactly Matt&rsquo;s tickets and can share a leg &mdash; place each one." : "") + "</p>"
     + tickets.map(parlayCard).join("");
   $("v-bets").innerHTML = h;
@@ -480,19 +503,27 @@ function simsStat(rows, name){
 
 function renderSims(){
   var esb=jsonl(DATA.esb_ledger), msb=jsonl(DATA.model_sb_ledger);
-  var h="<p class=\"note\"><b>Simulated bets &mdash; no money on these.</b> The model&rsquo;s picks priced at the real books (BetMGM/Borgata/FanDuel), staked by quarter-Kelly, graded on real results. Track them here before committing real money.</p>";
+  var h="<p class=\"note\"><b>Simulated bets &mdash; no money on these.</b> The model&rsquo;s picks priced at the real books (BetMGM/Borgata/FanDuel), staked by quarter-Kelly, graded on real results. Track them here before committing real money. Open rows carry BetMGM/Borgata slip links that open the exact match &mdash; if you want to bet one for real, check the odds on the slip match the sim first.</p>";
   h+="<div class=\"stats\">"+simsStat(esb,"Esoccer sims")+simsStat(msb,"2K basketball sims")+"</div>";
   var open=[].concat(
     esb.filter(function(r){return (r.status||"").toLowerCase()==="open";}).map(function(r){
-      return {t:(r.home||"")+" v "+(r.away||""), p:r.side, am:r.price_am, dec:r.price_dec, pw:Math.round(100*(r.model_p||0)), ev:r.ev, st:r.stake, when:r.time?Number(r.time)*1000:null, lg:r.league, src:"esoccer"};
+      return {t:(r.home||"")+" v "+(r.away||""), p:r.side, am:r.price_am, dec:r.price_dec, pw:Math.round(100*(r.model_p||0)), ev:r.ev, st:r.stake, when:r.time?Number(r.time)*1000:null, lg:r.league, src:"esoccer", lk:r.links||{}};
     }),
     msb.filter(function(r){return (r.status||"").toLowerCase()==="open";}).map(function(r){
-      return {t:r.match||"", p:r.pick, am:r.book_price, dec:null, pw:r.model_win, ev:r.ev, st:r.stake, when:r.start?Date.parse(r.start):null, lg:r.league, src:"2K @ books"};
+      return {t:r.match||"", p:r.pick, am:r.book_price, dec:null, pw:r.model_win, ev:r.ev, st:r.stake, when:r.start?Date.parse(r.start):null, lg:r.league, src:"2K @ books", lk:r.links||{}};
     })
   ).sort(function(a,b){return (a.when||0)-(b.when||0);});
   h+="<h2>Open sims &middot; "+open.length+"</h2><div class=\"card\">"+(open.length?open.map(function(x){
+    // slip links: same exact-match Entain links as the To-place rows
+    // (both books share ids). Rows the books don't carry get no buttons.
+    var btns="";
+    [["betmgm","BetMGM","mg"],["borgata","Borgata","bga"]].forEach(function(bk){
+      var L=x.lk[bk[0]]; if(!L) return;
+      btns+="<a class=\"btn sm "+bk[2]+"\" href=\""+esc(appHref({book:bk[0], app:L.app, web:L.web}))+"\" target=\"_blank\" rel=\"noopener\" title=\""+esc(L.web)+"\">"+bk[1]+"</a>";
+    });
     return "<div class=\"item\"><div class=\"l\"><div class=\"t\">"+esc(x.p||"")+" <span class=\"bk\">"+esc(x.src)+"</span>"+(x.lg?" <span class=\"bk\">"+esc(x.lg)+"</span>":"")+"</div>"
-      +"<div class=\"s\">"+esc(x.t)+" &middot; model "+x.pw+"% &middot; EV "+(x.ev!=null?"+"+Math.round(100*(x.ev||0))+"%":"–")+" &middot; "+(x.am!=null?esc(am(x.am)):(x.dec?esc(x.dec.toFixed(2)):""))+" &middot; sim stake "+esc(usd(x.st,true))+(x.when?" &middot; start "+esc(tm(x.when)):"")+"</div></div></div>";
+      +"<div class=\"s\">"+esc(x.t)+" &middot; model "+x.pw+"% &middot; EV "+(x.ev!=null?"+"+Math.round(100*(x.ev||0))+"%":"–")+" &middot; "+(x.am!=null?esc(am(x.am)):(x.dec?esc(x.dec.toFixed(2)):""))+" &middot; sim stake "+esc(usd(x.st,true))+(x.when?" &middot; start "+esc(tm(x.when)):"")+"</div></div>"
+      +(btns?"<div class=\"r slbtns\">"+btns+"</div>":"")+"</div>";
   }).join(""):"<div class=\"empty\"><b>No open sims right now</b>New simulated picks appear here about 10–60 minutes before tip.</div>")+"</div>";
   var done=esb.filter(function(r){return ["win","loss","push"].indexOf(String(r.status||"").toLowerCase())>=0;})
     .concat(msb.filter(function(r){return ["settled"].indexOf(String(r.status||"").toLowerCase())>=0;}));
