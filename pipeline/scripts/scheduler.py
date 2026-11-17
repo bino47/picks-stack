@@ -39,6 +39,7 @@ def scorer_cycle():
                SCORER_DATA_ROOT=HIST,
                PYTHONPATH='', PYTHONHOME='')
     for script, args in (('h2hggl_recorder.py', ['--days', '3']),
+                         ('betsapi_feed.py', ['--days', '3', '--pages', '3']),
                          ('source_observer.py', ['--live'])):
         try:
             r = subprocess.run([PY, '-I', os.path.join(HERE, 'scorer', script)] + args,
