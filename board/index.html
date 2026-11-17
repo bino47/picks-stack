@@ -145,10 +145,12 @@ font-weight:600;box-shadow:0 4px 18px rgba(0,0,0,.25);display:none}
  <div id="sel" class="sel" hidden></div>
  <nav><button data-tab="bets" class="on">To place<span class="n" id="nb">0</span></button>
  <button data-tab="placed">Placed<span class="n" id="np">0</span></button>
+ <button data-tab="sims">Sims</button>
  <button data-tab="record">Record</button></nav>
 </header>
 <section id="v-bets"></section>
 <section id="v-placed" hidden></section>
+<section id="v-sims" hidden></section>
 <section id="v-record" hidden></section>
 </main><div id="toast"></div>
 <script>
@@ -460,12 +462,60 @@ function renderRecord(){
   $("v-record").innerHTML = h;
 }
 
+function jsonl(str){ var out = []; String(str || "").split("\n").forEach(function(l){ l = l.trim(); if (!l) return; try { out.push(JSON.parse(l)); } catch (e) {} }); return out; }
+
+function simsStat(rows, name){
+  var w=0,l=0,p=0,pnl=0,staked=0,open=0;
+  rows.forEach(function(r){
+    var st=r.status||r.result, s=r.stake||0;
+    if(st==="open"){open++;return;}
+    if(st==="win"||st==="W"||st===true){w++;pnl+=(r.pnl!=null?r.pnl:(r.price_dec?(r.price_dec-1)*s:0));staked+=s;}
+    else if(st==="loss"||st==="L"||st===false){l++;pnl+=(r.pnl!=null?r.pnl:-s);staked+=s;}
+    else if(st==="push"){p++;pnl+=(r.pnl||0);}
+  });
+  var roi=staked?Math.round(1000*pnl/staked)/10:null;
+  return "<div class=\"stat\"><div class=\"k\">"+name+"</div><div class=\"v "+(pnl>0?"pos":pnl<0?"neg":"")+"\">"+esc(signed(pnl))+"</div>"
+    +"<div class=\"s\">"+w+"-"+l+(p?"-"+p:"")+" &middot; "+(roi==null?"–":(roi>0?"+":"")+roi+"%")+" &middot; "+open+" open</div></div>";
+}
+
+function renderSims(){
+  var esb=jsonl(DATA.esb_ledger), msb=jsonl(DATA.model_sb_ledger);
+  var h="<p class=\"note\"><b>Simulated bets &mdash; no money on these.</b> The model&rsquo;s picks priced at the real books (BetMGM/Borgata/FanDuel), staked by quarter-Kelly, graded on real results. Track them here before committing real money.</p>";
+  h+="<div class=\"stats\">"+simsStat(esb,"Esoccer sims (all time)")+simsStat(msb,"2K basketball sims (all time)")+"</div>";
+  var open=[].concat(
+    esb.filter(function(r){return (r.status||"").toLowerCase()==="open";}).map(function(r){
+      return {t:(r.home||"")+" v "+(r.away||""), p:r.side, am:r.price_am, dec:r.price_dec, pw:Math.round(100*(r.model_p||0)), ev:r.ev, st:r.stake, when:r.time?Number(r.time)*1000:null, lg:r.league, src:"esoccer"};
+    }),
+    msb.filter(function(r){return (r.status||"").toLowerCase()==="open";}).map(function(r){
+      return {t:r.match||"", p:r.pick, am:r.book_price, dec:null, pw:r.model_win, ev:r.ev, st:r.stake, when:r.start?Date.parse(r.start):null, lg:r.league, src:"2K @ books"};
+    })
+  ).sort(function(a,b){return (a.when||0)-(b.when||0);});
+  h+="<h2>Open sims &middot; "+open.length+"</h2><div class=\"card\">"+(open.length?open.map(function(x){
+    return "<div class=\"item\"><div class=\"l\"><div class=\"t\">"+esc(x.p||"")+" <span class=\"bk\">"+esc(x.src)+"</span>"+(x.lg?" <span class=\"bk\">"+esc(x.lg)+"</span>":"")+"</div>"
+      +"<div class=\"s\">"+esc(x.t)+" &middot; model "+x.pw+"% &middot; EV "+(x.ev!=null?"+"+Math.round(100*(x.ev||0))+"%":"–")+" &middot; "+(x.am!=null?esc(am(x.am)):(x.dec?esc(x.dec.toFixed(2)):""))+" &middot; sim stake "+esc(usd(x.st,true))+(x.when?" &middot; start "+esc(tm(x.when)):"")+"</div></div></div>";
+  }).join(""):"<div class=\"empty\"><b>No open sims right now</b>New simulated picks appear here about 10–60 minutes before tip.</div>")+"</div>";
+  var done=esb.filter(function(r){return ["win","loss","push"].indexOf(String(r.status||"").toLowerCase())>=0;})
+    .concat(msb.filter(function(r){return ["settled"].indexOf(String(r.status||"").toLowerCase())>=0;}));
+  if(done.length){
+    done.sort(function(a,b){return String(b.placed||b.created||"").localeCompare(String(a.placed||a.created||""));});
+    h+="<details class=\"watch\"><summary>Graded sims &middot; "+done.length+"</summary><div class=\"card\">"+done.slice(0,120).map(function(r){
+      var st=String(r.status||r.result||"").toLowerCase(), res=st==="win"?"won":st==="loss"?"lost":st;
+      var isEsb=r.event_id!=null;
+      return "<div class=\"item\"><div class=\"l\"><div class=\"t\">"+esc(r.side||r.pick||"")+" <span class=\"bk\">"+esc(isEsb?"esoccer":"2K")+"</span> <span class=\"res "+esc(st)+"\">"+esc(res)+"</span></div>"
+        +"<div class=\"s\">"+esc(isEsb?((r.home||"")+" v "+(r.away||"")):r.match)+" &middot; "+esc(r.market||"")+" &middot; "+esc(am(isEsb?r.price_am:r.book_price))+" &middot; model "+Math.round(100*(r.model_p||((r.model_win||0)/100)))+"%</div></div>"
+        +"<div class=\"r\">"+(r.pnl!=null?"<div class=\"pnl "+(r.pnl>0?"pos":r.pnl<0?"neg":"")+"\">"+esc(signed(r.pnl))+"</div>":"")+"</div></div>";
+    }).join("")+"</div></details>";
+  }
+  $("v-sims").innerHTML=h;
+}
+
 function render(){
   if (!DATA) return;
   head(); renderBets(); renderPlaced();
   if (TAB === "record") renderRecord();
+  if (TAB === "sims") renderSims();
   [].forEach.call(document.querySelectorAll("nav button"), function(b){ b.classList.toggle("on", b.getAttribute("data-tab") === TAB); });
-  ["bets", "placed", "record"].forEach(function(t){ $("v-" + t).hidden = (t !== TAB); });
+  ["bets", "placed", "sims", "record"].forEach(function(t){ $("v-" + t).hidden = (t !== TAB); });
 }
 
 function lockOut(msg){
