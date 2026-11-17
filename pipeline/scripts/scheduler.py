@@ -362,6 +362,10 @@ def board_bets():
                 'web': web, 'app': app})
     # NBA: mirror ALL upcoming singles from the user's own board, with the
     # observer's verdict attached (armed = in the profitable >=64% band).
+    # (friend card fetched once here: FD nba rows join it by key for exact
+    # slip links, and the fifa section below reuses the same lookup)
+    friend = _friend_card() or {}
+    fby = {b.get('key'): b for b in (friend.get('bets') or [])}
     try:
         card = json.load(open(os.path.join(HIST, 'history', 'scored_card.json')))
     except Exception:
@@ -379,8 +383,13 @@ def board_bets():
         if start < dt.datetime.now(dt.timezone.utc):
             continue
         nba_cands.append((c, start))
-    # collapse book mirrors: same pick posted at 2-3 books -> keep the BEST price
+    # collapse book mirrors: the Entain twins (betmgm/borgata) share a
+    # platform and links -> keep the better price of the two. FanDuel gets
+    # its OWN row: its prices differ and it has separate slip links, and a
+    # single best-price collapse meant FD lost every tick-tie and never
+    # reached the board at all.
     best = {}
+    fd_row = {}
     for c, start in nba_cands:
         try:
             dec = 1 + (float(c.get('price')) / 100.0 if float(c.get('price')) > 0
@@ -388,9 +397,13 @@ def board_bets():
         except (TypeError, ValueError):
             dec = 0
         sig = (c.get('match'), (c.get('side') or '').strip().upper(), start.strftime('%Y%m%dT%H%M'))
+        if (c.get('book') or '').strip().lower() == 'fanduel':
+            if sig not in fd_row or dec > fd_row[sig][0]:
+                fd_row[sig] = (dec, c, start)
+            continue
         if sig not in best or dec > best[sig][0]:
             best[sig] = (dec, c, start)
-    for dec, c, start in best.values():
+    for dec, c, start in list(best.values()) + list(fd_row.values()):
         rec = bool(c.get('bet'))
         # the brain's own quarter-Kelly sizing, identical to the paper books'
         # formula but UNCAPPED at the user's request (2026-11-15):
@@ -412,6 +425,16 @@ def board_bets():
                                 mparts[1] if len(mparts) > 1 else '',
                                 start.timestamp()) if nb in ('betmgm', 'borgata') else ''
         links = _mgm_links(epath, nb)
+        # FanDuel: join the friend card by key for the exact one-click slip
+        # links (the scored card drops fdName/web/app/slipIds); fall back to
+        # the plain lobby links when the friend row rotated off.
+        web_link = links[0] if links else NBA_BOOK_LINKS.get(nb, '')
+        app_link = links[1] if links else NBA_BOOK_APPS.get(nb, '')
+        if nb == 'fanduel':
+            f = fby.get(c.get('key'))
+            if f:
+                web_link = f.get('web') or web_link
+                app_link = f.get('app') or f.get('web') or app_link
         bets.append({
             'key': c.get('key'), 'kind': 'nba', 'league': 'nba',
             'lgName': ('eBasketball H2H GG League - 4x5 mins — on the app: Basketball > E-Basketball'
@@ -428,15 +451,12 @@ def board_bets():
                 '' if not rec else ' | qKelly $%s' % ('%.0f' % kelly_stake)),
             'armed': rec, 'why': '' if rec else 'observer model: below the 64%% band',
             'book': nb,
-            'web': links[0] if links else NBA_BOOK_LINKS.get(nb, ''),
-            'app': links[1] if links else NBA_BOOK_APPS.get(nb, ''),
+            'web': web_link, 'app': app_link,
             'line': '', 'legs': []})
     # FIFA (esoccer) singles: observer-scored rows joined to the friend's live
     # card for the one-click FanDuel slip links, club names and tip time.
     # Each posted key is appended to fifa_board_ledger.jsonl so /graded can
     # settle it against the H2H feed results later.
-    friend = _friend_card() or {}
-    fby = {b.get('key'): b for b in (friend.get('bets') or [])}
     led_path = os.path.join(HIST, 'fifa_board_ledger.jsonl')
     try:
         seen_led = {json.loads(x).get('key') for x in (read(led_path) or '').splitlines() if x.strip()}
