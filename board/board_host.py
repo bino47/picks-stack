@@ -217,12 +217,15 @@ def _repair_pnl():
             pl = json.loads(r['payload'])
         except Exception:
             continue
-        own = _pnl_for(pl.get('result'), pl.get('stake', pl.get('amount')), pl.get('price'))
-        if own is not None and pl.get('pnl') != own:
-            pl['pnl'] = own
-            c.execute("UPDATE placements SET payload=? WHERE rowid=?",
-                      (json.dumps(pl), r['rowid']))
-            fixed += 1
+        try:
+            own = _pnl_for(pl.get('result'), pl.get('stake', pl.get('amount')), pl.get('price'))
+            if own is not None and pl.get('pnl') != own:
+                pl['pnl'] = own
+                c.execute("UPDATE placements SET payload=? WHERE rowid=?",
+                          (json.dumps(pl), r['rowid']))
+                fixed += 1
+        except Exception:
+            continue          # never let one bad row kill the boot
     if fixed:
         c.commit()
         print(f'pnl repair: recomputed {fixed} graded row(s) from own stake/price')
@@ -367,14 +370,22 @@ def _norm_settle(raw):
 def _pnl_for(result, amount, price):
     if result == 'push':
         return 0.0
-    if amount is None:
-        return None
+    # stakes/prices arrive as strings from the page ('46.62', '-110', '+100')
+    # and older rows store them that way — coerce, and return None (never
+    # raise) on non-numeric data so one bad row can't kill a boot or a settle
+    # pass.
     try:
-        p = float(price if price is not None else -110)
-        dec = 1 + (p / 100 if p > 0 else 100 / abs(p))
+        amt = float(amount)
     except (TypeError, ValueError):
         return None
-    return round(amount * (dec - 1), 2) if result == 'win' else -float(amount)
+    if not amt > 0:
+        return None
+    try:
+        p = float(price) if price is not None else -110.0
+    except (TypeError, ValueError):
+        return None
+    dec = 1 + (p / 100 if p > 0 else 100 / abs(p))
+    return round(amt * (dec - 1), 2) if result == 'win' else round(-amt, 2)
 
 
 def settle_pass():
@@ -674,6 +685,7 @@ class H(BaseHTTPRequestHandler):
         if path == '/act':                       # place / skip / undo / bankroll — own rows only
             c = db()
             act, key = body.get('action') or body.get('act'), body.get('key')
+            amt = None
             if act in ('place', 'skip') and key:
                 # a place with no/zero amount can never settle to a real P&L
                 # (one such row existed: stake=None forever) — reject it.
@@ -690,16 +702,21 @@ class H(BaseHTTPRequestHandler):
                 # Enrich with the card row so Placed/Record render pick, book,
                 # market, match, tip time — the page's placedItem() needs them.
                 b = _card_bet(key) or {}
+                stake = amt if act == 'place' else body.get('amount')   # numeric — strings broke _pnl_for
+                try:
+                    px = float(body.get('price') or b.get('price'))
+                except (TypeError, ValueError):
+                    px = body.get('price') or b.get('price')
                 payload = json.dumps({'status': 'placed' if act == 'place' else 'skipped',
                                       'key': key,
                                       'pick': body.get('side') or b.get('side'),
-                                      'stake': body.get('amount'),
-                                      'price': body.get('price') or b.get('price'),
+                                      'stake': stake if act == 'place' else body.get('amount'),
+                                      'price': px,
                                       'limited': bool(body.get('limited')),
                                       'kind': b.get('kind'), 'book': b.get('book'),
                                       'league': b.get('league'), 'match': b.get('match'),
                                       'market': b.get('market'), 'start': b.get('start'),
-                                      **{k: body.get(k) for k in ('amount', 'price', 'match', 'league', 'start') if body.get(k)}})
+                                      **{k: body.get(k) for k in ('match', 'league', 'start') if body.get(k)}})
                 c.execute("INSERT INTO placements(user_id, pkey, payload, created) VALUES(?,?,?,?) "
                           "ON CONFLICT(user_id, pkey) DO UPDATE SET payload=excluded.payload",
                           (user['id'], key, payload, time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())))
