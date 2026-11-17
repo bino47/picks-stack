@@ -75,13 +75,15 @@ def run(script, args):
 
 
 def main():
-    # cold start (fresh Render disk): walk 16 pages of ended events so the
-    # corpus clears the ridge/edges minimums on the first cycle
+    # cold start (fresh Render disk): walk deep so per-gamer counts clear the
+    # 25-game thin-sample guard (an 800-game walk leaves most gamers thin and
+    # every fixture gets skipped). League has 250k+ ended events, so paging
+    # is deep; ~45 pages ~= 2250 games ~= the VPS corpus.
     try:
         n_games = sum(1 for _ in open(CORPUS, encoding='utf-8'))
     except Exception:
         n_games = 0
-    new, total = delta_backfill(16 if n_games < 600 else 3)
+    new, total = delta_backfill(45 if n_games < 2000 else 3)
     print(f'bb backfill: +{new} games, corpus {total}', flush=True)
     run('esb_bb_edges.py', [])
     run('esb_bb_picker.py', ['pick'])
