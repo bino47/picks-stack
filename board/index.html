@@ -80,12 +80,14 @@ color:var(--warn)}
 border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(--ink);font:inherit;
 font-weight:700;font-size:14px;text-decoration:none;cursor:pointer;flex:1}
 .btn.fd{background:var(--fd);border-color:var(--fd);color:var(--fdink)}
+.btn.b365{background:#14841d;border-color:#14841d;color:#fff}
 .btn.mg{background:#b08d3c;border-color:#b08d3c;color:#fff}
 .btn.bga{background:#7a1f8f;border-color:#7a1f8f;color:#fff}
 .bk{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;padding:1px 7px;border-radius:9px;margin-left:6px;background:var(--chip);color:var(--ink)}
 .bk.mg{background:#b08d3c;color:#fff}
 .bk.bga{background:#7a1f8f;color:#fff}
 .bk.fb{background:#2f6b3a;color:#fff}
+.bk.b365{background:#14841d;color:#fff}
 .bk.sc{background:#5b3f9c;color:#fff}
 .btn.ok{background:var(--ok);border-color:var(--ok);color:#fff}
 .btn.ghost{color:var(--muted)}.btn[disabled]{opacity:.45;pointer-events:none}
@@ -310,10 +312,11 @@ function appHref(b){
 
 function betCard(b){
   var k = esc(b.key), st = mins(b.start), ed = EDIT[b.key] || {};
-  var book = b.book, mg = book === "betmgm", bga = book === "borgata";
-  var bk = mg ? "BetMGM" : (bga ? "Borgata" : "FanDuel");
+  var book = b.book, mg = book === "betmgm", bga = book === "borgata", b365 = book === "bet365";
+  var bk = mg ? "BetMGM" : (bga ? "Borgata" : (b365 ? "bet365" : "FanDuel"));
+  var bcls = mg ? "mg" : (bga ? "bga" : (b365 ? "b365" : "fd"));
   var nfl = b.league === "nfl", soc = b.league === "fifa", own = nfl || soc;
-  var tag = (nfl ? "<span class=\"bk fb\">Football</span>" : "") + (soc ? "<span class=\"bk sc\">Soccer</span>" : "") + (DATA.split ? "<span class=\"bk" + (mg ? " mg" : (bga ? " bga" : "")) + "\">" + bk + "</span>" : "");
+  var tag = (nfl ? "<span class=\"bk fb\">Football</span>" : "") + (soc ? "<span class=\"bk sc\">Soccer</span>" : "") + (DATA.split ? "<span class=\"bk " + (bcls === "fd" ? "" : bcls) + "\">" + bk + "</span>" : "");
   var go = nfl ? "starts" : (soc ? "kicks off" : "tips");
   var when = st <= 0 ? "<span class=\"soon\">" + (nfl ? "starting" : (soc ? "kicking off" : "tipping")) + " now</span>" : (st <= 5 ? "<span class=\"soon\">" + go + " in " + st + " min</span>" : go + " in " + st + " min");
   var on = b.armed && (own || DATA.live);   // DATA.live is the basketball board's health
@@ -327,7 +330,7 @@ function betCard(b){
   if (!on) h += "<div class=\"why\">Not placeable right now: " + esc(b.why || DATA.why || "board not live") + "</div>";
   if (b.note) h += "<div class=\"why\">" + esc(b.note) + "</div>";
   h += "<div class=\"row\">"
-    + (on && b.app ? "<a class=\"btn " + (mg ? "mg" : (bga ? "bga" : "fd")) + "\" href=\"" + esc(appHref(b)) + "\" target=\"_blank\" rel=\"noopener\">" + bk + " app</a>" : "<span class=\"btn " + (mg ? "mg" : (bga ? "bga" : "fd")) + "\" disabled>" + bk + " app</span>")
+    + (on && b.app ? "<a class=\"btn " + bcls + "\" href=\"" + esc(appHref(b)) + "\" target=\"_blank\" rel=\"noopener\">" + bk + " app</a>" : "<span class=\"btn " + bcls + "\" disabled>" + bk + " app</span>")
     + (on && b.web ? "<a class=\"btn\" href=\"" + esc(b.web) + "\" target=\"_blank\" rel=\"noopener\">Browser</a>" : "<span class=\"btn\" disabled>Browser</span>")
     + "</div>";
   if (!OPEN[b.key]) {
@@ -352,9 +355,11 @@ function betCard(b){
 // button. No Line field: a ticket's lines are part of which ticket it is.
 function parlayCard(b){
   var k = esc(b.key), st = mins(b.start), ed = EDIT[b.key] || {}, legs = b.legs || [], n = legs.length;
-  var mg = b.book === "betmgm", bga = b.book === "borgata", bk = mg ? "BetMGM" : (bga ? "Borgata" : "FanDuel");
+  var mg = b.book === "betmgm", bga = b.book === "borgata", b365 = b.book === "bet365";
+  var bk = mg ? "BetMGM" : (bga ? "Borgata" : (b365 ? "bet365" : "FanDuel"));
+  var bcls = mg ? "mg" : (bga ? "bga" : (b365 ? "b365" : "fd"));
   var soc = b.league === "fifa";
-  var tag = (soc ? "<span class=\"bk sc\">Soccer</span>" : "") + (DATA.split ? "<span class=\"bk" + (mg ? " mg" : (bga ? " bga" : "")) + "\">" + bk + "</span>" : "");
+  var tag = (soc ? "<span class=\"bk sc\">Soccer</span>" : "") + (DATA.split ? "<span class=\"bk " + (bcls === "fd" ? "" : bcls) + "\">" + bk + "</span>" : "");
   var when = st <= 0 ? "<span class=\"soon\">closing now</span>" : (st <= 5 ? "<span class=\"soon\">closes in " + st + " min</span>" : "closes in " + st + " min");
   var on = b.armed && (soc || DATA.live);   // DATA.live is the basketball board's health
   var h = "<article class=\"card" + (on ? "" : " off") + "\">"
@@ -366,7 +371,7 @@ function parlayCard(b){
   if (!on) h += "<div class=\"why\">Not placeable right now: " + esc(b.why || DATA.why || "board not live") + "</div>";
   h += "<div class=\"hint\">The button loads all " + n + " legs. In the " + bk + " slip put <b>" + esc(usd(stake(b))) + " on the Parlay line</b> (not on the straight bets), check every leg is there, and check the parlay odds are about <b>" + esc(am(b.price)) + "</b>.</div>"
     + "<div class=\"row\">"
-    + (on && b.app ? "<a class=\"btn " + (mg ? "mg" : (bga ? "bga" : "fd")) + "\" href=\"" + esc(appHref(b)) + "\" target=\"_blank\" rel=\"noopener\">" + bk + " app</a>" : "<span class=\"btn " + (mg ? "mg" : (bga ? "bga" : "fd")) + "\" disabled>" + bk + " app</span>")
+    + (on && b.app ? "<a class=\"btn " + bcls + "\" href=\"" + esc(appHref(b)) + "\" target=\"_blank\" rel=\"noopener\">" + bk + " app</a>" : "<span class=\"btn " + bcls + "\" disabled>" + bk + " app</span>")
     + (on && b.web ? "<a class=\"btn\" href=\"" + esc(b.web) + "\" target=\"_blank\" rel=\"noopener\">Browser</a>" : "<span class=\"btn\" disabled>Browser</span>")
     + "</div>";
   if (!OPEN[b.key]) {
@@ -417,7 +422,7 @@ function placedItem(k, r){
     : (r.result ? "<span class=\"res " + esc(r.result) + "\">" + esc(r.result === "win" ? "won" : r.result === "loss" ? "lost" : r.result) + "</span>" : "<span class=\"res\">pending</span>");
   var pnl = r.status === "placed" && r.pnl != null ? "<div class=\"pnl " + (r.pnl > 0 ? "pos" : r.pnl < 0 ? "neg" : "") + "\">" + esc(signed(r.pnl)) + "</div>" : "";
   var undo = r.locked ? "" : "<button class=\"btn sm ghost\" data-act=\"undo\" data-k=\"" + esc(k) + "\">Undo</button>";
-  return "<div class=\"item\"><div class=\"l\"><div class=\"t\">" + esc(r.pick || "") + (r.league === "nfl" ? " <span class=\"bk fb\">Football</span>" : "") + (r.league === "fifa" ? " <span class=\"bk sc\">Soccer</span>" : "") + (r.book === "betmgm" ? " <span class=\"bk mg\">BetMGM</span>" : "") + (r.book === "borgata" ? " <span class=\"bk bga\">Borgata</span>" : "") + (r.status === "placed" ? " &middot; " + esc(am(r.price)) + " &middot; " + esc(usd(r.stake, true)) : "") + (r.limited ? " <span class=\"bk\">Limited</span>" : "") + "</div>"
+  return "<div class=\"item\"><div class=\"l\"><div class=\"t\">" + esc(r.pick || "") + (r.league === "nfl" ? " <span class=\"bk fb\">Football</span>" : "") + (r.league === "fifa" ? " <span class=\"bk sc\">Soccer</span>" : "") + (r.book === "betmgm" ? " <span class=\"bk mg\">BetMGM</span>" : "") + (r.book === "borgata" ? " <span class=\"bk bga\">Borgata</span>" : "") + (r.book === "bet365" ? " <span class=\"bk b365\">bet365</span>" : "") + (r.status === "placed" ? " &middot; " + esc(am(r.price)) + " &middot; " + esc(usd(r.stake, true)) : "") + (r.limited ? " <span class=\"bk\">Limited</span>" : "") + "</div>"
     + "<div class=\"s\">" + (r.kind === "parlay" ? esc(r.match || "") + " &middot; first leg " + esc(tm(r.start))
         : esc(r.match || "") + " &middot; " + esc(r.market || "") + " &middot; tip " + esc(tm(r.start)) + (r.score ? " &middot; final " + esc(r.score) : "")) + "</div></div>"
     + "<div class=\"r\">" + res + pnl + (undo ? "<div style=\"margin-top:6px\">" + undo + "</div>" : "") + "</div></div>";
