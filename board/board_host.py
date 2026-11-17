@@ -486,10 +486,11 @@ def compute_record(uid):
     today_placed = [p for p in all_placed if time.strftime('%Y-%m-%d', time.gmtime(created_ts(p))) == today]
     week_placed = [p for p in all_placed if created_ts(p) >= week_ago]
     by_league = {}
-    for lg in ('nba', 'nfl', 'fifa'):
+    # dynamic: bucket every league present in this user's placements (hardcoded
+    # nba/nfl/fifa silently dropped esoccer leagues -> sums didn't add up)
+    for lg in sorted({p.get('league') for p in all_placed if p.get('league')}):
         sub = [p for p in all_placed if p.get('league') == lg]
-        if sub:
-            by_league[lg] = {'placed': bucket(sub)}
+        by_league[lg] = {'placed': bucket(sub)}
     days = []
     seen = {}
     for p in all_placed:

@@ -509,8 +509,10 @@ function renderRecord(){
   var S = REC.summary;
   var h = "<div class=\"stats\">" + stat("Today", S.today.placed) + stat("7 days", S.week.placed) + stat("All time", S.all.placed) + "</div>";
   var BL = S.all.byLeague || {};
-  if (BL.nfl || BL.fifa) h += "<div class=\"stats\">" + [["nba", "Basketball"], ["nfl", "Football"], ["fifa", "Soccer"]].map(function(x){
-      return BL[x[0]] ? stat(x[1] + ", all time", BL[x[0]].placed) : ""; }).join("") + "</div>";
+  var LGL = {nba:"Basketball", nfl:"Football", fifa:"Soccer",
+            battle8:"Esoccer Battle 2x4", volta6:"Esoccer Volta 2x3", h2hggl8:"Esoccer H2H GG"};
+  if (Object.keys(BL).length) h += "<div class=\"stats\">" + Object.keys(BL).map(function(k){
+      return stat((LGL[k] || k) + ", all time", BL[k].placed); }).join("") + "</div>";
   h += "<p class=\"note\">P&amp;L on the bets you placed, at the odds you took. Staked: " + esc(usd(S.all.placed.staked)) + " all time.</p>";
   h += "<h2>By day</h2><div class=\"card\"><table><tr><th>Day</th><th>Bets</th><th>W-L</th><th>P&amp;L</th><th>ROI</th></tr>"
     + REC.days.slice(0, 30).map(function(x){ var s = x.placed; return "<tr><td>" + esc(x.day) + "</td><td>" + s.n + "</td><td>" + s.w + "-" + s.l + "</td><td class=\"" + (s.pnl > 0 ? "pos" : s.pnl < 0 ? "neg" : "") + "\">" + esc(signed(s.pnl)) + "</td><td>" + (s.roi == null ? "–" : s.roi + "%") + "</td></tr>"; }).join("")
