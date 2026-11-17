@@ -180,6 +180,18 @@ def destroy_session(handler):
 
 # ---------------- card source ----------------
 
+def _card_bet(key):
+    """Look up one card row by key, for enriching a placement with the
+    display fields the page renders (pick/stake/book/market/start...)."""
+    try:
+        for b in fetch_card().get('bets') or []:
+            if b.get('key') == key:
+                return b
+    except Exception:
+        pass
+    return None
+
+
 _card_cache = {"at": 0.0, "data": None}
 
 
@@ -307,6 +319,100 @@ def user_record(uid):
     return rec
 
 
+def compute_record(uid):
+    """Feed for the page's Record tab (GET /record): summary buckets
+    (today / 7 days / all time, all-time split byLeague), by-day table
+    and the raw rows, all from this user's own placements."""
+    c = db()
+    rows = c.execute("""SELECT payload, created FROM placements
+                        WHERE user_id=? ORDER BY created DESC""", (uid,)).fetchall()
+    c.close()
+    pls = []
+    for r in rows:
+        try:
+            pl = json.loads(r['payload'])
+            pl['_created'] = r['created']
+            pls.append(pl)
+        except Exception:
+            continue
+
+    def bucket(items):
+        b = {'n': 0, 'w': 0, 'l': 0, 'p': 0, 'pnl': 0.0, 'staked': 0.0, 'open': 0}
+        for pl in items:
+            b['n'] += 1
+            res = pl.get('result')
+            pnl = pl.get('pnl')
+            if not isinstance(pnl, (int, float)):
+                pnl = _pnl_for(res, pl.get('stake', pl.get('amount')), pl.get('price'))
+            if res == 'win':
+                b['w'] += 1
+                b['pnl'] += pnl or 0
+            elif res == 'loss':
+                b['l'] += 1
+                b['pnl'] += pnl or 0
+            elif res == 'push':
+                b['p'] += 1
+            else:
+                b['open'] += 1
+            if res in ('win', 'loss', 'push'):
+                try:
+                    b['staked'] += float(pl.get('stake', pl.get('amount')) or 0)
+                except (TypeError, ValueError):
+                    pass
+        graded = b['w'] + b['l'] + b['p']
+        b['roi'] = round(b['pnl'] / b['staked'] * 100, 1) if b['staked'] and graded else None
+        b['pnl'] = round(b['pnl'], 2)
+        b['staked'] = round(b['staked'], 2)
+        return b
+
+    def placed_of(items):
+        return [p for p in items if p.get('status') == 'placed']
+
+    now = time.time()
+    today = time.strftime('%Y-%m-%d', time.gmtime())
+    week_ago = now - 7 * 86400
+
+    def created_ts(pl):
+        try:
+            return time.mktime(time.strptime(pl['_created'], '%Y-%m-%dT%H:%M:%SZ')) - time.timezone
+        except Exception:
+            return 0
+
+    all_placed = placed_of(pls)
+    today_placed = [p for p in all_placed if time.strftime('%Y-%m-%d', time.gmtime(created_ts(p))) == today]
+    week_placed = [p for p in all_placed if created_ts(p) >= week_ago]
+    by_league = {}
+    for lg in ('nba', 'nfl', 'fifa'):
+        sub = [p for p in all_placed if p.get('league') == lg]
+        if sub:
+            by_league[lg] = {'placed': bucket(sub)}
+    days = []
+    seen = {}
+    for p in all_placed:
+        d = time.strftime('%Y-%m-%d', time.gmtime(created_ts(p)))
+        seen.setdefault(d, []).append(p)
+    for d in sorted(seen, reverse=True)[:30]:
+        days.append({'day': d, 'placed': bucket(seen[d])})
+    rec_rows = []
+    for p in pls:
+        st = p.get('status')
+        if st not in ('placed', 'skipped'):
+            continue
+        rec_rows.append({
+            'key': p.get('key'), 'status': st, 'kind': p.get('kind'),
+            'placed': {'pick': p.get('pick'), 'price': p.get('price'),
+                       'stake': p.get('stake', p.get('amount')), 'limited': p.get('limited')},
+            'book': p.get('book'), 'league': p.get('league'), 'match': p.get('match'),
+            'market': p.get('market'), 'start': p.get('start'),
+            'result': p.get('result'), 'score': p.get('score'), 'pnl': p.get('pnl'),
+            'at': p.get('_created'),
+        })
+    return {'summary': {'today': {'placed': bucket(today_placed)},
+                        'week': {'placed': bucket(week_placed)},
+                        'all': {'placed': bucket(all_placed), 'byLeague': by_league}},
+            'days': days, 'rows': rec_rows}
+
+
 # ---------------- http ----------------
 
 LOGIN_PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8">
@@ -367,6 +473,10 @@ class H(BaseHTTPRequestHandler):
                 body = b'<h1>board index.html missing</h1>'
             self._send(200, body)
             return
+        if path == '/record':
+            self._send(200, json.dumps({'ok': True, **compute_record(user['id'])}).encode(),
+                       'application/json')
+            return
         if path == '/data':
             card = fetch_card()
             c = db()
@@ -420,11 +530,21 @@ class H(BaseHTTPRequestHandler):
             body = {}
         if path == '/act':                       # place / skip / undo / bankroll — own rows only
             c = db()
-            act, key = body.get('act'), body.get('key')
+            act, key = body.get('action') or body.get('act'), body.get('key')
             if act in ('place', 'skip') and key:
+                # Enrich with the card row so Placed/Record render pick, book,
+                # market, match, tip time — the page's placedItem() needs them.
+                b = _card_bet(key) or {}
                 payload = json.dumps({'status': 'placed' if act == 'place' else 'skipped',
                                       'key': key,
-                                      **{k: body.get(k) for k in ('amount', 'price', 'limited', 'match', 'league', 'start')}})
+                                      'pick': body.get('side') or b.get('side'),
+                                      'stake': body.get('amount'),
+                                      'price': body.get('price') or b.get('price'),
+                                      'limited': bool(body.get('limited')),
+                                      'kind': b.get('kind'), 'book': b.get('book'),
+                                      'league': b.get('league'), 'match': b.get('match'),
+                                      'market': b.get('market'), 'start': b.get('start'),
+                                      **{k: body.get(k) for k in ('amount', 'price', 'match', 'league', 'start') if body.get(k)}})
                 c.execute("INSERT INTO placements(user_id, pkey, payload, created) VALUES(?,?,?,?) "
                           "ON CONFLICT(user_id, pkey) DO UPDATE SET payload=excluded.payload",
                           (user['id'], key, payload, time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())))
