@@ -92,6 +92,18 @@ font-weight:700;font-size:14px;text-decoration:none;cursor:pointer;flex:1}
 .btn.ok{background:var(--ok);border-color:var(--ok);color:#fff}
 .btn.ghost{color:var(--muted)}.btn[disabled]{opacity:.45;pointer-events:none}
 .btn.sm{min-height:32px;font-size:12.5px;padding:0 10px;flex:none}
+.bknav{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 4px;position:sticky;top:0;z-index:5;
+background:var(--bg);padding:4px 0}
+.bknav .chip{min-height:32px;padding:0 12px;border-radius:16px;border:1px solid var(--line);
+background:var(--card);color:var(--muted);font:inherit;font-weight:700;font-size:12.5px;
+cursor:pointer;display:inline-flex;align-items:center;gap:5px}
+.bknav .chip .n{background:var(--chip);border-radius:8px;padding:0 6px;font-size:11px;font-variant-numeric:tabular-nums}
+.bknav .chip.on{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.bknav .chip.on .n{background:rgba(255,255,255,.22)}
+.bknav .chip.mg.on{background:#b08d3c;border-color:#b08d3c;color:#fff}
+.bknav .chip.bga.on{background:#7a1f8f;border-color:#7a1f8f;color:#fff}
+.bknav .chip.b365.on{background:#14841d;border-color:#14841d;color:#fff}
+.bknav .chip.fd.on{background:var(--fd);border-color:var(--fd);color:var(--fdink)}
 form.place{margin-top:10px;padding:12px;border-radius:9px;border:1px dashed var(--line)}
 .f{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
 .f label{font-size:11.5px;color:var(--muted);font-weight:650}
@@ -206,6 +218,9 @@ function stakeDisplay(b){
   return esc(usd(scaled)) + " <span class=\"real\">(" + esc(usd(real)) + ")</span>";
 }
 try { TAB = localStorage.getItem("pb-tab") || "bets"; } catch (e) {}
+// Book filter for the To-place tab ("all" = grouped by book). Persisted like TAB.
+var BOOKF = "all";
+try { BOOKF = localStorage.getItem("pb-book") || "all"; } catch (e) {}
 function $(id){ return document.getElementById(id); }
 function esc(x){ return String(x == null ? "" : x).replace(/[&<>"']/g, function(c){
   return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
@@ -414,6 +429,23 @@ function byBook(list){
   return out;
 }
 
+// Book filter chips at the top of the To-place tab: "All" (grouped by book)
+// plus one chip per book with picks live, tap to show only that book's cards.
+function bookChips(counts, total){
+  var books = BOOKS.filter(function(x){ return counts[x[0]]; })
+    .concat(Object.keys(counts).filter(function(k){
+      return !BOOKS.some(function(x){ return x[0] === k; });
+    }).map(function(k){ return [k, k, ""]; }));
+  if (books.length < 2) return "";
+  var h = "<div class=\"bknav\">"
+    + "<button class=\"chip" + (BOOKF === "all" ? " on" : "") + "\" data-bk=\"all\">All<span class=\"n\">" + total + "</span></button>";
+  books.forEach(function(x){
+    h += "<button class=\"chip " + esc(x[0]) + (x[0] === "fanduel" ? " fd" : x[0] === "betmgm" ? " mg" : x[0] === "borgata" ? " bga" : x[0] === "bet365" ? " b365" : "")
+      + (BOOKF === x[0] ? " on" : "") + "\" data-bk=\"" + esc(x[0]) + "\">" + esc(x[1]) + "<span class=\"n\">" + counts[x[0]] + "</span></button>";
+  });
+  return h + "</div>";
+}
+
 function renderBets(){
   var d = DATA, mine = d.mine || {};
   var todo = (d.bets || []).filter(function(b){ return !mine[b.key]; });
@@ -433,7 +465,13 @@ function renderBets(){
     + "<div class=\"hint\">New bets arrive bundled in one ping, a few minutes apart at most; tap it to open this board. <a href=\"#\" data-act=\"hidetip\" data-k=\"" + esc(d.alerts) + "\">Hide this</a></div></div>";
   if (d.addAll && d.live) h += "<div class=\"all\"><a class=\"btn fd sm\" href=\"" + esc(d.addAll.app) + "\" target=\"_blank\" rel=\"noopener\">Add all " + d.addAll.n + " (app)</a>"
     + "<a class=\"btn sm\" href=\"" + esc(d.addAll.web) + "\" target=\"_blank\" rel=\"noopener\">browser</a><span>Keep them as singles, one stake each.</span></div>";
-  h += picks.length ? byBook(picks) : "<div class=\"empty\"><b>No picks right now</b>The model only plays games in its profitable band, so most tracked games don&rsquo;t make the cut. New picks show up here about 10–60 minutes before tip. This page refreshes itself.</div>";
+  var counts = {}, total = picks.length;
+  picks.forEach(function(b){ var k = b.book || "fanduel"; counts[k] = (counts[k] || 0) + 1; });
+  if (BOOKF !== "all" && !counts[BOOKF]) BOOKF = "all"; // book ran dry -> fall back
+  var shown = BOOKF === "all" ? picks : picks.filter(function(b){ return (b.book || "fanduel") === BOOKF; });
+  h += picks.length ? bookChips(counts, total)
+    + (BOOKF === "all" ? byBook(shown) : shown.map(betCard).join(""))
+    : "<div class=\"empty\"><b>No picks right now</b>The model only plays games in its profitable band, so most tracked games don&rsquo;t make the cut. New picks show up here about 10–60 minutes before tip. This page refreshes itself.</div>";
   if (watch.length) h += "<details class=\"watch\"><summary>Also tracking " + watch.length + " more game" + (watch.length > 1 ? "s" : "") + " (not recommended)</summary>"
     + "<p class=\"note\">Tracked by the model but <b>below the 64% profitable band &mdash; don&rsquo;t bet these.</b> Shown so you can see what it&rsquo;s watching.</p>"
     + byBook(watch) + "</details>";
@@ -503,7 +541,7 @@ function simsStat(rows, name){
 
 function renderSims(){
   var esb=jsonl(DATA.esb_ledger), msb=jsonl(DATA.model_sb_ledger);
-  var h="<p class=\"note\"><b>Simulated bets &mdash; no money on these.</b> The model&rsquo;s picks priced at the real books (BetMGM/Borgata/FanDuel), staked by quarter-Kelly, graded on real results. Track them here before committing real money. Open rows carry BetMGM/Borgata slip links that open the exact match &mdash; if you want to bet one for real, check the odds on the slip match the sim first.</p>";
+  var h="<p class=\"note\"><b>Simulated bets &mdash; no money on these.</b> The model&rsquo;s picks priced at the real books (BetMGM/Borgata/FanDuel), staked by quarter-Kelly, graded on real results. Track them here before committing real money. If you ever want to bet one for real, find the same match on the To-place tab or at the book yourself and check the odds before staking.</p>";
   h+="<div class=\"stats\">"+simsStat(esb,"Esoccer sims")+simsStat(msb,"2K basketball sims")+"</div>";
   var open=[].concat(
     esb.filter(function(r){return (r.status||"").toLowerCase()==="open";}).map(function(r){
@@ -514,16 +552,10 @@ function renderSims(){
     })
   ).sort(function(a,b){return (a.when||0)-(b.when||0);});
   h+="<h2>Open sims &middot; "+open.length+"</h2><div class=\"card\">"+(open.length?open.map(function(x){
-    // slip links: same exact-match Entain links as the To-place rows
-    // (both books share ids). Rows the books don't carry get no buttons.
-    var btns="";
-    [["betmgm","BetMGM","mg"],["borgata","Borgata","bga"]].forEach(function(bk){
-      var L=x.lk[bk[0]]; if(!L) return;
-      btns+="<a class=\"btn sm "+bk[2]+"\" href=\""+esc(appHref({book:bk[0], app:L.app, web:L.web}))+"\" target=\"_blank\" rel=\"noopener\" title=\""+esc(L.web)+"\">"+bk[1]+"</a>";
-    });
+    // Sims are paper: no book links here (books get the links on the To-place tab).
     return "<div class=\"item\"><div class=\"l\"><div class=\"t\">"+esc(x.p||"")+" <span class=\"bk\">"+esc(x.src)+"</span>"+(x.lg?" <span class=\"bk\">"+esc(x.lg)+"</span>":"")+"</div>"
       +"<div class=\"s\">"+esc(x.t)+" &middot; model "+x.pw+"% &middot; EV "+(x.ev!=null?"+"+Math.round(100*(x.ev||0))+"%":"–")+" &middot; "+(x.am!=null?esc(am(x.am)):(x.dec?esc(x.dec.toFixed(2)):""))+" &middot; sim stake "+esc(usd(x.st,true))+(x.when?" &middot; start "+esc(tm(x.when)):"")+"</div></div>"
-      +(btns?"<div class=\"r slbtns\">"+btns+"</div>":"")+"</div>";
+      +"</div>";
   }).join(""):"<div class=\"empty\"><b>No open sims right now</b>New simulated picks appear here about 10–60 minutes before tip.</div>")+"</div>";
   var done=esb.filter(function(r){return ["win","loss","push"].indexOf(String(r.status||"").toLowerCase())>=0;})
     .concat(msb.filter(function(r){return ["settled"].indexOf(String(r.status||"").toLowerCase())>=0;}));
@@ -597,9 +629,11 @@ function act(body){
 function betBy(k){ return (DATA.bets || []).filter(function(b){ return b.key === k; })[0]; }
 
 document.addEventListener("click", function(ev){
-  var t = ev.target.closest("[data-tab],[data-act]"); if (!t) return;
+  var t = ev.target.closest("[data-tab],[data-act],[data-bk]"); if (!t) return;
   if (t.hasAttribute("data-tab")) { TAB = t.getAttribute("data-tab"); try { localStorage.setItem("pb-tab", TAB); } catch (e) {}
     render(); if (TAB === "record") loadRecord(false); window.scrollTo(0, 0); return; }
+  if (t.hasAttribute("data-bk")) { BOOKF = t.getAttribute("data-bk"); try { localStorage.setItem("pb-book", BOOKF); } catch (e) {}
+    render(); return; }
   var a = t.getAttribute("data-act"), k = t.getAttribute("data-k"), b = betBy(k);
   ev.preventDefault();
   if (a === "hidetip") { try { localStorage.setItem("pb-alert-tip", k); } catch (e) {} render(); return; }
