@@ -539,6 +539,22 @@ function simsStat(rows, name){
     +"<div class=\"s\">"+w+"-"+l+(p?"-"+p:"")+" &middot; "+(roi==null?"–":(roi>0?"+":"")+roi+"%")+" &middot; "+open+" open</div></div>";
 }
 
+// Slip-link buttons for an open sim row. The pipeline enriches open ledger
+// rows in the /board card with links.betmgm/borgata {web, app} via the Entain
+// resolver (both books share event ids). Rows without links (book doesn't
+// carry the game, or bet365-only leagues the resolver can't see) get none.
+// appHref() rewrites the app URL per platform exactly like the To-place tab.
+function slipLinks(x){
+  var out="";
+  [["betmgm","BetMGM","mg"],["borgata","Borgata","bga"]].forEach(function(b){
+    var L=(x.lk||{})[b[0]];
+    if(!L) return;
+    if(L.app) out+="<a class=\"btn sm "+b[2]+"\" href=\""+esc(appHref({book:b[0],app:L.app}))+"\" target=\"_blank\" rel=\"noopener\">"+b[1]+" app</a>";
+    if(L.web) out+="<a class=\"btn sm\" href=\""+esc(L.web)+"\" target=\"_blank\" rel=\"noopener\">"+(L.app?"":" "+b[1]+" ")+"Browser</a>";
+  });
+  return out?"<div class=\"r\">"+out+"</div>":"";
+}
+
 function renderSims(){
   var esb=jsonl(DATA.esb_ledger), msb=jsonl(DATA.model_sb_ledger);
   var h="<p class=\"note\"><b>Simulated bets &mdash; no money on these.</b> The model&rsquo;s picks priced at the real books (BetMGM/Borgata/FanDuel), staked by quarter-Kelly, graded on real results. Track them here before committing real money. If you ever want to bet one for real, find the same match on the To-place tab or at the book yourself and check the odds before staking.</p>";
@@ -552,9 +568,14 @@ function renderSims(){
     })
   ).sort(function(a,b){return (a.when||0)-(b.when||0);});
   h+="<h2>Open sims &middot; "+open.length+"</h2><div class=\"card\">"+(open.length?open.map(function(x){
-    // Sims are paper: no book links here (books get the links on the To-place tab).
+    // Open sims carry the same exact-match Entain links as To-place rows
+    // (pipeline enriches open rows in the /board card): BetMGM + Borgata
+    // buttons open the match at the books — check odds before staking real
+    // money on a sim. Rows with no links (book doesn't carry the game, or
+    // bet365-only leagues) render no buttons, like the To-place tab.
     return "<div class=\"item\"><div class=\"l\"><div class=\"t\">"+esc(x.p||"")+" <span class=\"bk\">"+esc(x.src)+"</span>"+(x.lg?" <span class=\"bk\">"+esc(x.lg)+"</span>":"")+"</div>"
       +"<div class=\"s\">"+esc(x.t)+" &middot; model "+x.pw+"% &middot; EV "+(x.ev!=null?"+"+Math.round(100*(x.ev||0))+"%":"–")+" &middot; "+(x.am!=null?esc(am(x.am)):(x.dec?esc(x.dec.toFixed(2)):""))+" &middot; sim stake "+esc(usd(x.st,true))+(x.when?" &middot; start "+esc(tm(x.when)):"")+"</div></div>"
+      +slipLinks(x)
       +"</div>";
   }).join(""):"<div class=\"empty\"><b>No open sims right now</b>New simulated picks appear here about 10–60 minutes before tip.</div>")+"</div>";
   var done=esb.filter(function(r){return ["win","loss","push"].indexOf(String(r.status||"").toLowerCase())>=0;})
