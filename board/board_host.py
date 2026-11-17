@@ -28,6 +28,7 @@ import sqlite3
 import threading
 import time
 import urllib.request
+import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs
 
@@ -41,6 +42,105 @@ SESSION_TTL = 14 * 86400
 LOCKOUT = {}          # username -> [fails, locked_until]
 _failed = {}
 _failed_mu = threading.Lock()
+
+# Render free tier wipes /var/data on every deploy AND every spin-down/wake —
+# the board's SQLite DB does not survive, which silently destroyed the users'
+# placement/record history. Persistence shim: keep the DB as a file on a git
+# branch (NOT the production branch, so pushes never trigger deploys). Restore
+# on boot when the local DB is fresh; push a debounced snapshot after writes.
+# Dormant (no-op) unless GH_BACKUP_TOKEN is set in the service env.
+GH_TOKEN   = (os.environ.get('GH_BACKUP_TOKEN') or '').strip()
+GH_REPO    = (os.environ.get('GH_BACKUP_REPO') or 'bino47/picks-stack').strip()
+GH_BRANCH  = (os.environ.get('GH_BACKUP_BRANCH') or 'board-db').strip()
+GH_FILE    = 'board.db.bak'
+
+_dirty = threading.Event()
+
+
+def _gh(path, method='GET', body=None, timeout=30):
+    req = urllib.request.Request('https://api.github.com' + path,
+        headers={'Authorization': 'token ' + GH_TOKEN,
+                 'Accept': 'application/vnd.github+json',
+                 'Content-Type': 'application/json'},
+        method=method, data=json.dumps(body).encode() if body is not None else None)
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.status, json.loads(r.read().decode() or '{}')
+
+
+def backup_restore():
+    """Boot: if the local DB is fresh (no placements) and a backup exists on
+    the backup branch, restore it. Returns True when a restore happened."""
+    if not GH_TOKEN:
+        return False
+    try:
+        st, d = _gh(f'/repos/{GH_REPO}/contents/{GH_FILE}?ref={GH_BRANCH}')
+        raw = base64.b64decode(d.get('content') or '')
+        if len(raw) < 512:
+            return False
+        c = db()
+        n = c.execute("SELECT COUNT(*) AS n FROM placements").fetchone()['n']
+        c.close()
+        if n:
+            return False
+        tmp = DB_PATH + '.restore'
+        with open(tmp, 'wb') as f:
+            f.write(raw)
+        t = sqlite3.connect(tmp)          # sanity: restored file must be a
+        t.execute("SELECT COUNT(*) FROM users")   # valid sqlite DB
+        t.close()
+        os.replace(tmp, DB_PATH)
+        print('board db: restored from', GH_REPO, GH_BRANCH)
+        return True
+    except Exception as e:
+        print('board db: restore skipped:', e)
+        return False
+
+
+def mark_dirty():
+    if GH_TOKEN:
+        _dirty.set()
+
+
+def _backup_loop():
+    """Debounced pusher: one snapshot push per dirty window, at most every
+    60s. Never raises into the request path."""
+    while True:
+        _dirty.wait()
+        time.sleep(60)          # debounce bursts (settle pass touches many rows)
+        _dirty.clear()
+        try:
+            tmp = DB_PATH + '.snapshot'
+            s = sqlite3.connect(DB_PATH)
+            t = sqlite3.connect(tmp)
+            s.backup(t)         # consistent snapshot even mid-write
+            t.close(); s.close()
+            with open(tmp, 'rb') as f:
+                content = base64.b64encode(f.read()).decode()
+            sha = None
+            try:
+                st, d = _gh(f'/repos/{GH_REPO}/contents/{GH_FILE}?ref={GH_BRANCH}')
+                sha = d.get('sha')
+            except Exception:
+                sha = None      # file or branch may not exist yet
+            body = {'message': 'board db backup', 'content': content,
+                    'branch': GH_BRANCH}
+            if sha:
+                body['sha'] = sha
+            try:
+                _gh(f'/repos/{GH_REPO}/contents/{GH_FILE}', 'PUT', body)
+            except urllib.error.HTTPError as e:
+                if e.code == 422 and not sha:      # branch missing: create it
+                    st, m = _gh(f'/repos/{GH_REPO}/git/ref/heads/main')
+                    _gh(f'/repos/{GH_REPO}/git/refs', 'POST',
+                        {'ref': 'refs/heads/' + GH_BRANCH,
+                         'sha': m.get('object', {}).get('sha')})
+                    _gh(f'/repos/{GH_REPO}/contents/{GH_FILE}', 'PUT', body)
+                else:
+                    raise
+            os.unlink(tmp)
+        except Exception as e:
+            print('board db: backup failed:', e)   # retried on next dirty
+
 
 SCRYPT_N, SCRYPT_R, SCRYPT_P = 2 ** 14, 8, 1
 
@@ -262,6 +362,7 @@ def settle_pass():
     c = db()
     rows = c.execute("""SELECT p.rowid, p.payload FROM placements p
                         WHERE json_extract(p.payload, '$.status') = 'placed'""").fetchall()
+    updated = 0
     for r in rows:
         try:
             pl = json.loads(r['payload'])
@@ -278,8 +379,11 @@ def settle_pass():
             pl['pnl'] = pnl
         c.execute("UPDATE placements SET payload=? WHERE rowid=?",
                   (json.dumps(pl), r['rowid']))
+        updated += 1
     c.commit()
     c.close()
+    if updated:
+        mark_dirty()
 
 
 def _settle_loop():
@@ -574,6 +678,7 @@ class H(BaseHTTPRequestHandler):
                     return
             c.commit()
             c.close()
+            mark_dirty()
             self._send(200, b'{"ok":true}', 'application/json')
             return
         self._send(404, b'not found')
@@ -584,7 +689,11 @@ class H(BaseHTTPRequestHandler):
 
 if __name__ == '__main__':
     init_db()
+    backup_restore()          # free tier: /var/data starts empty on every boot
     threading.Thread(target=_settle_loop, daemon=True).start()
+    if GH_TOKEN:
+        threading.Thread(target=_backup_loop, daemon=True).start()
     print('board host on', PORT, '| card:', CARD_SOURCE or 'NOT SET',
-          '| settle:', SETTLE_SOURCE or 'NOT SET')
+          '| settle:', SETTLE_SOURCE or 'NOT SET',
+          '| db backup:', 'on' if GH_TOKEN else 'OFF (set GH_BACKUP_TOKEN)')
     ThreadingHTTPServer(('0.0.0.0', PORT), H).serve_forever()
