@@ -109,6 +109,16 @@ def read(path):
         return None
 
 
+def read_tail(path, n=400):
+    """Last n lines of a jsonl ledger — ledgers grow unbounded and would
+    bloat the /board payload; the Sims tab only needs recent + graded rows."""
+    try:
+        lines = open(path, encoding='utf-8').read().splitlines()
+        return '\n'.join(lines[-n:])
+    except Exception:
+        return None
+
+
 # ---------- board shim: serve bets/graded in the hosted board's format ----------
 def _esb_iso(ts):
     try:
@@ -686,6 +696,10 @@ class H(BaseHTTPRequestHandler):
                                'checkedAt': dt.datetime.utcnow().isoformat() + 'Z',
                                'partner': partner, 'model': partner,
                                'partners': [partner], 'liveBankroll': {},
+                               # Sims tab feeds: model paper ledgers (graded +
+                               # open rows) for the board's Sims tab
+                               'esb_ledger': read_tail(os.path.join(HIST, 'esb_paper_ledger.jsonl'), 400),
+                               'model_sb_ledger': read_tail(os.path.join(HERE, 'model_sb_ledger.jsonl'), 400),
                                'bets': bets}).encode()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')

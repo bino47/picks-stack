@@ -481,7 +481,7 @@ function simsStat(rows, name){
 function renderSims(){
   var esb=jsonl(DATA.esb_ledger), msb=jsonl(DATA.model_sb_ledger);
   var h="<p class=\"note\"><b>Simulated bets &mdash; no money on these.</b> The model&rsquo;s picks priced at the real books (BetMGM/Borgata/FanDuel), staked by quarter-Kelly, graded on real results. Track them here before committing real money.</p>";
-  h+="<div class=\"stats\">"+simsStat(esb,"Esoccer sims (all time)")+simsStat(msb,"2K basketball sims (all time)")+"</div>";
+  h+="<div class=\"stats\">"+simsStat(esb,"Esoccer sims")+simsStat(msb,"2K basketball sims")+"</div>";
   var open=[].concat(
     esb.filter(function(r){return (r.status||"").toLowerCase()==="open";}).map(function(r){
       return {t:(r.home||"")+" v "+(r.away||""), p:r.side, am:r.price_am, dec:r.price_dec, pw:Math.round(100*(r.model_p||0)), ev:r.ev, st:r.stake, when:r.time?Number(r.time)*1000:null, lg:r.league, src:"esoccer"};
