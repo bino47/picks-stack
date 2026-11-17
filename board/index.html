@@ -574,13 +574,16 @@ function simsByBook(list){
   return out;
 }
 
+// Internal league codes -> real league names as the books list them.
+var ESLG = {battle8:"Esoccer Battle 2x4 (8 mins)", volta6:"Esoccer Volta 2x3 (6 mins)", h2hggl8:"Esoccer H2H GG 8 mins (bet365)"};
+
 function renderSims(){
   var esb=jsonl(DATA.esb_ledger);
   var h="<p class=\"note\"><b>Sim-market picks &mdash; esoccer (bettable).</b> The model&rsquo;s esoccer sim picks priced at the real books (BetMGM/Borgata links on each row), staked by quarter-Kelly, graded on real results. Use the App/Browser buttons to place one, then record it from the same game&rsquo;s row on the To-place tab.</p>";
   h+="<div class=\"stats\">"+simsStat(esb,"Esoccer sims")+"</div>";
   var open=[].concat(
     esb.filter(function(r){return (r.status||"").toLowerCase()==="open";}).map(function(r){
-      return {t:(r.home||"")+" v "+(r.away||""), p:r.side, am:r.price_am, dec:r.price_dec, pw:Math.round(100*(r.model_p||0)), ev:r.ev, st:r.stake, when:r.time?Number(r.time)*1000:null, lg:r.league, src:"esoccer", lk:r.links||{}};
+      return {t:(r.home||"")+" v "+(r.away||""), p:r.side, am:r.price_am, dec:r.price_dec, pw:Math.round(100*(r.model_p||0)), ev:r.ev, st:r.stake, when:r.time?Number(r.time)*1000:null, lg:ESLG[r.league]||r.league, src:"esoccer", lk:r.links||{}};
     })
   ).sort(function(a,b){return (a.when||0)-(b.when||0);});
   var slips=[], nolink=[];
@@ -605,7 +608,7 @@ function renderSims(){
     h+="<details class=\"watch\"><summary>Graded sims &middot; "+done.length+"</summary><div class=\"card\">"+done.slice(0,120).map(function(r){
       var st=String(r.status||r.result||"").toLowerCase(), res=st==="win"?"won":st==="loss"?"lost":st;
       return "<div class=\"item\"><div class=\"l\"><div class=\"t\">"+esc(r.side||r.pick||"")+" <span class=\"bk\">esoccer</span> <span class=\"res "+esc(st)+"\">"+esc(res)+"</span></div>"
-        +"<div class=\"s\">"+esc((r.home||"")+" v "+(r.away||""))+" &middot; "+esc(r.market||"")+" &middot; "+esc(am(r.price_am))+" &middot; model "+Math.round(100*(r.model_p||((r.model_win||0)/100)))+"%</div></div>"
+        +"<div class=\"s\">"+esc((r.home||"")+" v "+(r.away||""))+" &middot; "+esc(ESLG[r.league]||r.league||"")+" &middot; "+esc(r.market||"")+" &middot; "+esc(am(r.price_am))+" &middot; model "+Math.round(100*(r.model_p||((r.model_win||0)/100)))+"%</div></div>"
         +"<div class=\"r\">"+(r.pnl!=null?"<div class=\"pnl "+(r.pnl>0?"pos":r.pnl<0?"neg":"")+"\">"+esc(signed(r.pnl))+"</div>":"")+"</div></div>";
     }).join("")+"</div></details>";
   }
