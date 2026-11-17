@@ -510,7 +510,7 @@ function renderRecord(){
   var h = "<div class=\"stats\">" + stat("Today", S.today.placed) + stat("7 days", S.week.placed) + stat("All time", S.all.placed) + "</div>";
   var BL = S.all.byLeague || {};
   var LGL = {nba:"Basketball", nfl:"Football", fifa:"Soccer",
-            battle8:"Esoccer Battle 2x4", volta6:"Esoccer Volta 2x3", h2hggl8:"Esoccer H2H GG"};
+            battle8:"Virtual Soccer (Battle 2x4)", volta6:"Virtual Soccer (Volta 2x3)", h2hggl8:"Esoccer H2H GG (bet365)"};
   if (Object.keys(BL).length) h += "<div class=\"stats\">" + Object.keys(BL).map(function(k){
       return stat((LGL[k] || k) + ", all time", BL[k].placed); }).join("") + "</div>";
   h += "<p class=\"note\">P&amp;L on the bets you placed, at the odds you took. Staked: " + esc(usd(S.all.placed.staked)) + " all time.</p>";
@@ -577,7 +577,7 @@ function simsByBook(list){
 }
 
 // Internal league codes -> real league names as the books list them.
-var ESLG = {battle8:"Esoccer Battle 2x4 (8 mins)", volta6:"Esoccer Volta 2x3 (6 mins)", h2hggl8:"Esoccer H2H GG 8 mins (bet365)"};
+var ESLG = {battle8:"Virtual Soccer (Battle 2x4, 8 mins)", volta6:"Virtual Soccer (Volta 2x3, 6 mins)", h2hggl8:"Esoccer H2H GG 8 mins (bet365)"};
 
 function renderSims(){
   var esb=jsonl(DATA.esb_ledger);
