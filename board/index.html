@@ -575,15 +575,12 @@ function simsByBook(list){
 }
 
 function renderSims(){
-  var esb=jsonl(DATA.esb_ledger), msb=jsonl(DATA.model_sb_ledger);
-  var h="<p class=\"note\"><b>Simulated bets &mdash; no money on these.</b> The model&rsquo;s picks priced at the real books (BetMGM/Borgata/FanDuel), staked by quarter-Kelly, graded on real results. Track them here before committing real money. If you ever want to bet one for real, find the same match on the To-place tab or at the book yourself and check the odds before staking.</p>";
-  h+="<div class=\"stats\">"+simsStat(esb,"Esoccer sims")+simsStat(msb,"2K basketball sims")+"</div>";
+  var esb=jsonl(DATA.esb_ledger);
+  var h="<p class=\"note\"><b>Sim-market picks &mdash; esoccer (bettable).</b> The model&rsquo;s esoccer sim picks priced at the real books (BetMGM/Borgata links on each row), staked by quarter-Kelly, graded on real results. Use the App/Browser buttons to place one, then record it from the same game&rsquo;s row on the To-place tab.</p>";
+  h+="<div class=\"stats\">"+simsStat(esb,"Esoccer sims")+"</div>";
   var open=[].concat(
     esb.filter(function(r){return (r.status||"").toLowerCase()==="open";}).map(function(r){
       return {t:(r.home||"")+" v "+(r.away||""), p:r.side, am:r.price_am, dec:r.price_dec, pw:Math.round(100*(r.model_p||0)), ev:r.ev, st:r.stake, when:r.time?Number(r.time)*1000:null, lg:r.league, src:"esoccer", lk:r.links||{}};
-    }),
-    msb.filter(function(r){return (r.status||"").toLowerCase()==="open";}).map(function(r){
-      return {t:r.match||"", p:r.pick, am:r.book_price, dec:null, pw:r.model_win, ev:r.ev, st:r.stake, when:r.start?Date.parse(r.start):null, lg:r.league, src:"2K @ books", lk:r.links||{}};
     })
   ).sort(function(a,b){return (a.when||0)-(b.when||0);});
   var slips=[], nolink=[];
@@ -602,15 +599,13 @@ function renderSims(){
       +(BOOKF==="all"?simsByBook(shown):"<div class=\"card\">"+shown.map(simSlip).join("")+"</div>");
   } else h+="<div class=\"card\"><div class=\"empty\"><b>No open sims right now</b>New simulated picks appear here about 10&ndash;60 minutes before tip.</div></div>";
   if(nolink.length) h+="<details class=\"watch\"><summary>Paper only &middot; "+nolink.length+" not carried at the books</summary><div class=\"card\">"+nolink.map(paperRow).join("")+"</div></details>";
-  var done=esb.filter(function(r){return ["win","loss","push"].indexOf(String(r.status||"").toLowerCase())>=0;})
-    .concat(msb.filter(function(r){return ["settled"].indexOf(String(r.status||"").toLowerCase())>=0;}));
+  var done=esb.filter(function(r){return ["win","loss","push"].indexOf(String(r.status||"").toLowerCase())>=0;});
   if(done.length){
     done.sort(function(a,b){return String(b.placed||b.created||"").localeCompare(String(a.placed||a.created||""));});
     h+="<details class=\"watch\"><summary>Graded sims &middot; "+done.length+"</summary><div class=\"card\">"+done.slice(0,120).map(function(r){
       var st=String(r.status||r.result||"").toLowerCase(), res=st==="win"?"won":st==="loss"?"lost":st;
-      var isEsb=r.event_id!=null;
-      return "<div class=\"item\"><div class=\"l\"><div class=\"t\">"+esc(r.side||r.pick||"")+" <span class=\"bk\">"+esc(isEsb?"esoccer":"2K")+"</span> <span class=\"res "+esc(st)+"\">"+esc(res)+"</span></div>"
-        +"<div class=\"s\">"+esc(isEsb?((r.home||"")+" v "+(r.away||"")):r.match)+" &middot; "+esc(r.market||"")+" &middot; "+esc(am(isEsb?r.price_am:r.book_price))+" &middot; model "+Math.round(100*(r.model_p||((r.model_win||0)/100)))+"%</div></div>"
+      return "<div class=\"item\"><div class=\"l\"><div class=\"t\">"+esc(r.side||r.pick||"")+" <span class=\"bk\">esoccer</span> <span class=\"res "+esc(st)+"\">"+esc(res)+"</span></div>"
+        +"<div class=\"s\">"+esc((r.home||"")+" v "+(r.away||""))+" &middot; "+esc(r.market||"")+" &middot; "+esc(am(r.price_am))+" &middot; model "+Math.round(100*(r.model_p||((r.model_win||0)/100)))+"%</div></div>"
         +"<div class=\"r\">"+(r.pnl!=null?"<div class=\"pnl "+(r.pnl>0?"pos":r.pnl<0?"neg":"")+"\">"+esc(signed(r.pnl))+"</div>":"")+"</div></div>";
     }).join("")+"</div></details>";
   }
