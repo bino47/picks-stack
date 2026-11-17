@@ -203,6 +203,36 @@ def init_db():
     c.close()
 
 
+def _repair_pnl():
+    """One-shot boot repair: recompute pnl of already-graded placements from
+    their OWN stake+price. Rows graded before the settle-pass fix inherited
+    the pipeline feed's ledger pnl (~$25 paper stakes), not the user's actual
+    stake. Idempotent — _pnl_for of the same inputs is deterministic."""
+    c = db()
+    rows = c.execute("""SELECT p.rowid, p.payload FROM placements p
+                        WHERE json_extract(p.payload, '$.result') IN ('win','loss')""").fetchall()
+    fixed = 0
+    for r in rows:
+        try:
+            pl = json.loads(r['payload'])
+        except Exception:
+            continue
+        own = _pnl_for(pl.get('result'), pl.get('stake', pl.get('amount')), pl.get('price'))
+        if own is not None and pl.get('pnl') != own:
+            pl['pnl'] = own
+            c.execute("UPDATE placements SET payload=? WHERE rowid=?",
+                      (json.dumps(pl), r['rowid']))
+            fixed += 1
+    if fixed:
+        c.commit()
+        print(f'pnl repair: recomputed {fixed} graded row(s) from own stake/price')
+        try:
+            mark_dirty()
+        except Exception:
+            pass
+    c.close()
+
+
 def hash_pw(pw, salt):
     dk = hashlib.scrypt(pw.encode(), salt=bytes.fromhex(salt),
                         n=SCRYPT_N, r=SCRYPT_R, p=SCRYPT_P, dklen=32)
@@ -372,7 +402,15 @@ def settle_pass():
         if key not in verd:
             continue
         res, pnl = verd[key]
-        if pnl is None:
+        # P&L must reflect THIS user's stake/price, not the feed's own ledger
+        # (the pipeline grades its paper rows at ~$25 qKelly stakes; copying
+        # that pnl onto a user's $46.62 row reported a -25.00 loss on a 46.62
+        # risk — bets looked wrong). Recompute whenever the placement carries
+        # its own stake and price; trust the feed pnl only as a fallback.
+        own = _pnl_for(res, pl.get('stake', pl.get('amount')), pl.get('price'))
+        if own is not None:
+            pnl = own
+        elif pnl is None:
             pnl = _pnl_for(res, pl.get('amount'), pl.get('price'))
         pl['result'] = res
         if pnl is not None:
@@ -637,6 +675,18 @@ class H(BaseHTTPRequestHandler):
             c = db()
             act, key = body.get('action') or body.get('act'), body.get('key')
             if act in ('place', 'skip') and key:
+                # a place with no/zero amount can never settle to a real P&L
+                # (one such row existed: stake=None forever) — reject it.
+                if act == 'place':
+                    try:
+                        amt = float(body.get('amount') or 0)
+                    except (TypeError, ValueError):
+                        amt = 0
+                    if not (amt > 0):
+                        c.close()
+                        self._send(400, b'{"ok":false,"error":"stake required"}',
+                                   'application/json')
+                        return
                 # Enrich with the card row so Placed/Record render pick, book,
                 # market, match, tip time — the page's placedItem() needs them.
                 b = _card_bet(key) or {}
@@ -691,6 +741,7 @@ class H(BaseHTTPRequestHandler):
 if __name__ == '__main__':
     init_db()
     backup_restore()          # free tier: /var/data starts empty on every boot
+    _repair_pnl()             # after restore: fix graded rows whose pnl came from the feed's ledger
     threading.Thread(target=_settle_loop, daemon=True).start()
     if GH_TOKEN:
         threading.Thread(target=_backup_loop, daemon=True).start()
