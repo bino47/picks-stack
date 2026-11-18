@@ -368,6 +368,163 @@ def _bet365_slug(home, away):
     return ''
 
 
+# ---- bet365 live quotes (BetsAPI prematch odds = the real bet365 prices) ----
+# Twin rows used to clone the source book's price. The sims books don't arb
+# each other, so bet365's line/price routinely diverges by the time the user
+# opens the app (2026-11-18: MIST +8.5/-125 card vs bet365 -120; ABYSS +4.5
+# card vs bet365 +6.5; Under 108.5 card vs bet365 104.5). Quote the real
+# bet365 numbers and stamp the row with the quote time (BetsAPI snapshots lag
+# a few minutes). Cached 10 min — the board re-polls /board constantly.
+_BQ = {'at': 0.0, 'up': [], 'odds': {}}
+_BQ_LOCK = threading.Lock()
+_BQ_TTL = 600
+
+def _bapi(path):
+    tok = (os.environ.get('BETSAPI_KEY') or '').strip()
+    if not tok:
+        return {}
+    sep = '&' if '?' in path else '?'
+    req = urllib.request.Request('https://api.betsapi.com' + path + sep + 'token=' + tok,
+                                 headers={'User-Agent': 'board-host/1.0'})
+    return json.loads(urllib.request.urlopen(req, timeout=12).read().decode() or '{}')
+
+def _b365_upcoming():
+    """bet365 eBasketball GG 4x5 upcoming events (sport 18 / league 25067)."""
+    now = time.time()
+    if now - _BQ['at'] < _BQ_TTL or not _BQ_LOCK.acquire(blocking=False):
+        return _BQ['up']
+    try:
+        out = []
+        for page in (1, 2):
+            rs = _bapi('/v1/events/upcoming?sport_id=18&league_id=25067&page=%d' % page).get('results') or []
+            out += rs
+            if len(rs) < 50:
+                break
+        _BQ['up'] = out
+    except Exception:
+        pass
+    finally:
+        _BQ['at'] = now
+        _BQ_LOCK.release()
+    return _BQ['up']
+
+def _b365_odds(eid):
+    now = time.time()
+    c = _BQ['odds'].get(eid)
+    if c and now - c[0] < _BQ_TTL:
+        return c[1]
+    try:
+        r = _bapi('/v1/event/odds?event_id=%s' % eid).get('results') or {}
+    except Exception:
+        r = {}
+    _BQ['odds'][eid] = (now, r)
+    return r
+
+def _dec2am(d):
+    try:
+        d = float(d)
+    except (TypeError, ValueError):
+        return None
+    if not 1.01 <= d <= 50:
+        return None
+    return int(round((d - 1) * 100)) if d >= 2 else int(round(-100 / (d - 1)))
+
+def _tag1(name):
+    m = re.match(r'^(.*?)\s*\(([^()]+)\)$', (name or '').strip())
+    return (m.group(2) or '').strip().upper() if m else ''
+
+def _hm(add_time):
+    try:
+        return dt.datetime.fromtimestamp(int(add_time), dt.timezone.utc).strftime('%H:%M')
+    except Exception:
+        return ''
+
+def _b365_esb_quote(o):
+    """bet365 3-way refresh for an open esoccer pick: (am, 'HH:MM') or None."""
+    eid = o.get('event_id')
+    if not eid:
+        return None
+    row = (_b365_odds(eid).get('1_1') or [{}])[0]
+    od = row.get('home_od') if (o.get('side') or '') == (o.get('home') or '') else row.get('away_od')
+    am = _dec2am(od)
+    return (am, _hm(row.get('add_time'))) if am is not None else None
+
+def _b365_bb_quote(tags, market, side_tag, ou):
+    """Real bet365 quote for an eBasketball GG pick; tags identify the game.
+
+    market 'ML'|'SPREAD'|'TOTAL'. Returns {'am','line','desc','at'} or None
+    when bet365 has no prematch odds for the fixture (the row then falls back
+    to the source-book price with a verify flag).
+    """
+    want = {str(t or '').upper() for t in tags}
+    want.discard('')
+    if len(want) != 2:
+        return None
+    ev = None
+    for e in _b365_upcoming():
+        if {_tag1((e.get('home') or {}).get('name')),
+                _tag1((e.get('away') or {}).get('name'))} == want:
+            ev = e
+            break
+    if not ev:
+        return None
+    r = _b365_odds(ev['id'])
+    mkt = (market or '').upper()
+    stag = str(side_tag or '').upper()
+    ht = _tag1((ev.get('home') or {}).get('name'))
+    if mkt == 'ML':
+        row = (r.get('18_1') or [{}])[0]
+        am = _dec2am(row.get('home_od') if stag == ht else row.get('away_od'))
+        return ({'am': am, 'line': None, 'desc': 'ML', 'at': _hm(row.get('add_time'))}
+                if am is not None else None)
+    if mkt == 'SPREAD':
+        row = (r.get('18_2') or [{}])[0]
+        try:
+            hcp = float(str(row.get('handicap') or '').split(',')[0])
+        except ValueError:
+            return None
+        if stag == ht:
+            am, bl = _dec2am(row.get('home_od')), hcp
+        else:
+            am, bl = _dec2am(row.get('away_od')), -hcp
+        if am is None:
+            return None
+        return {'am': am, 'line': bl, 'desc': '%+.1f' % bl, 'at': _hm(row.get('add_time'))}
+    if mkt == 'TOTAL':
+        row = (r.get('18_3') or [{}])[0]
+        try:
+            tot = float(str(row.get('handicap') or '').split(',')[0])
+        except ValueError:
+            return None
+        over = str(ou or '').upper().startswith('O')
+        am = _dec2am(row.get('over_od') if over else row.get('under_od'))
+        if am is None:
+            return None
+        return {'am': am, 'line': tot,
+                'desc': '%s %.1f' % ('Over' if over else 'Under', tot),
+                'at': _hm(row.get('add_time'))}
+    return None
+
+def _b365_twin_note(q, card_price, card_line, howto):
+    """Note fragment for a bet365 twin: live quote + moved-line/price flags."""
+    if not q:
+        return (' | bet365: no live prematch odds (feed has none yet) — the price '
+                'shown is the source book\'s, verify bet365\'s line before betting.'
+                + howto)
+    frag = " | bet365 now %s @ %s (quote %s UTC)" % (q['desc'], q['am'], q['at'])
+    try:
+        if card_line is not None and q['line'] is not None and abs(float(card_line) - float(q['line'])) > 0.01:
+            frag += " — LINE MOVED (card %s)" % card_line
+    except (TypeError, ValueError):
+        pass
+    try:
+        if card_price is not None and int(card_price) != int(q['am']):
+            frag += " (card %s)" % card_price
+    except (TypeError, ValueError):
+        pass
+    return frag + howto
+
+
 def board_bets():
     bets = []
     # partner profile: live bankrolls from the books (the board header reads these)
@@ -403,15 +560,19 @@ def board_bets():
             # deep link once the game is LIVE (Pulse Score esoccer is
             # in-play only — no pre-match slug).
             b365 = _bet365_slug(o.get('home'), o.get('away'))
+            q = _b365_esb_quote(o)
             bets.append({
                 'key': base + '|bet365', 'kind': 'esb', 'league': o.get('league'),
                 'lgName': 'bet365: Soccer > Esports > Esoccer H2H GG League - 8 mins play',
                 'match': '%s v %s' % (o.get('home'), o.get('away')),
                 'ga': o.get('home'), 'gb': o.get('away'),
                 'market': o.get('market'), 'side': o.get('side'),
-                'price': o.get('price_am'), 'stake': o.get('stake'),
+                'price': (q[0] if q else o.get('price_am')), 'stake': o.get('stake'),
                 'start': _esb_iso(o.get('time')),
                 'note': ('model %.1f%% EV %+.1f%%' % (100 * (o.get('model_p') or 0), 100 * (o.get('ev') or 0))
+                         + ((' | bet365 now @ %s (quote %s UTC, card %s)'
+                             % (q[0], q[1], o.get('price_am'))) if q
+                            else ' | bet365: no live quote — verify odds before betting')
                          + (' | bet365: opens the exact game — check the odds match before betting.'
                             if b365 else
                             ' | bet365 only: open bet365 > Soccer > Esports > Esoccer H2H GG '
@@ -425,16 +586,20 @@ def board_bets():
         # deep link once LIVE (Pulse Score esoccer is in-play only); lobby
         # fallback + manual match check before kickoff.
         b365 = _bet365_slug(o.get('home'), o.get('away'))
+        q = _b365_esb_quote(o)
         bets.append({
             'key': base + '|bet365', 'kind': 'esb', 'league': o.get('league'),
             'lgName': 'bet365: Soccer > Esports — find this league (e.g. Esoccer Battle - 8 mins play)',
             'match': '%s v %s' % (o.get('home'), o.get('away')),
             'ga': o.get('home'), 'gb': o.get('away'),
             'market': o.get('market'), 'side': o.get('side'),
-            'price': o.get('price_am'), 'stake': o.get('stake'),
+            'price': (q[0] if q else o.get('price_am')), 'stake': o.get('stake'),
             'start': _esb_iso(o.get('time')),
             'note': ('model %.1f%% EV %+.1f%% | bet365: '
                      % (100 * (o.get('model_p') or 0), 100 * (o.get('ev') or 0))
+                     + (('now @ %s (quote %s UTC, card %s) — '
+                         % (q[0], q[1], o.get('price_am'))) if q
+                        else 'no live quote — verify odds. ')
                      + ('opens the exact game — check the odds match before betting.'
                         if b365 else
                         'open bet365 > Soccer > Esports, find the same match, check the odds match before betting.')),
@@ -535,19 +700,24 @@ def board_bets():
                 'armed': True, 'book': book, 'line': '', 'legs': [],
                 'web': web, 'app': app})
         # bet365 twin (bettable there since 11-18): no deep-link resolver, lobby
-        # link + manual match check.
+        # link + manual match check. Price is a REAL bet365 quote (BetsAPI
+        # 18_1/18_2/18_3 on the tag-matched GG event) whenever bet365 posts
+        # prematch odds; otherwise the MGM clone with a verify flag.
+        q = _b365_bb_quote((o.get('tag_a'), o.get('tag_b')), o.get('market'),
+                           o.get('side_tag'), o.get('ou'))
         bets.append({
             'key': base + '|bet365', 'kind': 'nba', 'league': 'nba',
             'lgName': 'bet365: Basketball > E-Basketball (eBasketball H2H GG League - 4x5 mins)',
             'match': '%s v %s' % (o.get('home'), o.get('away')),
             'ga': o.get('home'), 'gb': o.get('away'),
             'market': mkt, 'side': o.get('side'),
-            'price': o.get('price_am'), 'stake': o.get('stake'),
+            'price': (q['am'] if q else o.get('price_am')), 'stake': o.get('stake'),
             'start': o.get('start'),
-            'note': ('our ridge: model %.1f%% EV %+.1f%% vs the MGM line | bet365: open '
-                     'Basketball > E-Basketball, find the same match, check the odds '
-                     'match before betting.'
-                     % (100 * (o.get('p_model') or 0), 100 * (o.get('ev') or 0))),
+            'note': ('our ridge: model %.1f%% EV %+.1f%% vs the MGM line'
+                     % (100 * (o.get('p_model') or 0), 100 * (o.get('ev') or 0))
+                     + _b365_twin_note(q, o.get('price_am'), o.get('line'),
+                                       ' | bet365: open Basketball > E-Basketball, '
+                                       'find the same match.')),
             'armed': True, 'book': 'bet365', 'line': '', 'legs': [],
             'web': 'https://www.bet365.com', 'app': 'https://www.bet365.com'})
     # NBA: mirror ALL upcoming singles from the user's own board, with the
@@ -645,18 +815,41 @@ def board_bets():
             'line': '', 'legs': []})
         if rec:
             # bet365 twin (bettable there since 11-18): the card's price is the
-            # source book's, so check bet365's odds match before betting.
+            # source book's. Quote bet365's REAL price/line (BetsAPI 18_x on
+            # the tag-matched GG event) when it posts prematch odds; otherwise
+            # keep the card price with a verify flag.
+            mparts2 = (c.get('match') or ' v ').split(' v ')
+            mtags = [_tag1(p) or p.strip().split()[0] if p.strip() else ''
+                     for p in mparts2[:2]]
+            mktu = (c.get('market') or '').strip().lower()
+            q = stag = ou = card_line = None
+            if mktu == 'moneyline':
+                stag = _tag1(c.get('side')) or next((t for t in mtags if t and t.upper() in (c.get('side') or '').upper()), None)
+                q = _b365_bb_quote(mtags, 'ML', stag, None)
+            elif mktu == 'spread':
+                msp = re.match(r'^(.*?)\s+([+-][\d.]+)$', (c.get('side') or '').strip())
+                if msp:
+                    card_line = float(msp.group(2))
+                    stag = _tag1(msp.group(1)) or next((t for t in mtags if t and t.upper() in msp.group(1).upper()), None)
+                    q = _b365_bb_quote(mtags, 'SPREAD', stag, None)
+            elif mktu == 'total':
+                mtot = re.match(r'^(Over|Under)\s+([\d.]+)$', (c.get('side') or '').strip(), re.I)
+                if mtot:
+                    ou = 'O' if mtot.group(1).lower() == 'over' else 'U'
+                    card_line = float(mtot.group(2))
+                    q = _b365_bb_quote(mtags, 'TOTAL', None, ou)
             bets.append({
                 'key': c.get('key') + '|bet365', 'kind': 'nba', 'league': 'nba',
                 'lgName': 'bet365: Basketball — find the same game (odds may differ)',
                 'match': c.get('match'), 'ga': (c.get('match') or '').split(' v ')[0],
                 'gb': (c.get('match') or ' v ').split(' v ')[1] if ' v ' in (c.get('match') or '') else '',
                 'market': c.get('market'), 'side': c.get('side'),
-                'price': c.get('price'), 'stake': kelly_stake if rec else 0,
+                'price': (q['am'] if q else c.get('price')), 'stake': kelly_stake if rec else 0,
                 'start': start.isoformat(),
-                'note': 'observer: model %.1f%% EV %s%% -> BET (profitable band) | bet365: '
-                        'open Basketball, find the same match, check the odds match before '
-                        'betting.' % (float(c.get('model_win') or 0), c.get('ev')),
+                'note': 'observer: model %.1f%% EV %s%% -> BET (profitable band)'
+                        % (float(c.get('model_win') or 0), c.get('ev'))
+                        + _b365_twin_note(q, c.get('price'), card_line,
+                                          ' | bet365: open Basketball, find the same match.'),
                 'armed': True, 'book': 'bet365',
                 'web': 'https://www.bet365.com', 'app': 'https://www.bet365.com',
                 'line': '', 'legs': []})
