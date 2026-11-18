@@ -152,16 +152,19 @@ font-weight:600;box-shadow:0 4px 18px rgba(0,0,0,.25);display:none}
   <div class="bankbox"><label>FanDuel bankroll ($)<input id="fdbank" inputmode="decimal" autocomplete="off" placeholder="enter to scale"></label>
   <label>BetMGM bankroll ($)<input id="mgmbank" inputmode="decimal" autocomplete="off" placeholder="enter to scale"></label>
   <label>Borgata bankroll ($)<input id="bgabank" inputmode="decimal" autocomplete="off" placeholder="enter to scale"></label>
+  <label>bet365 bankroll ($)<input id="b365bank" inputmode="decimal" autocomplete="off" placeholder="enter to scale"></label>
     <label class="boost"><input id="boost15" type="checkbox">×1.5 suggested bets</label>
     <span id="scaleinfo" class="subb"></span></div></div>
  <div id="status" class="status"><span class="dot"></span><span id="stxt">Loading&hellip;</span></div>
  <div id="sel" class="sel" hidden></div>
  <nav><button data-tab="bets" class="on">To place<span class="n" id="nb">0</span></button>
+ <button data-tab="b365">bet365<span class="n" id="n365">0</span></button>
  <button data-tab="placed">Placed<span class="n" id="np">0</span></button>
  <button data-tab="sims">Sims</button>
  <button data-tab="record">Record</button></nav>
 </header>
 <section id="v-bets"></section>
+<section id="v-b365" hidden></section>
 <section id="v-placed" hidden></section>
 <section id="v-sims" hidden></section>
 <section id="v-record" hidden></section>
@@ -174,10 +177,11 @@ var Q = new URLSearchParams(location.search), PID = Q.get("p");
 var LM = location.pathname.match(/^\/(p|a)\/[A-Za-z0-9_-]+/), BASE = LM ? LM[0] : "";
 var QS = PID ? "?p=" + encodeURIComponent(PID) : "";
 var DATA = null, REC = null, TAB = "bets", OPEN = {}, EDIT = {}, BUSY = false, recAt = 0, LOCKED = null;
-var MYBANK_FD = null, MYBANK_MGM = null, MYBANK_BGA = null, BOOST15 = false;
+var MYBANK_FD = null, MYBANK_MGM = null, MYBANK_BGA = null, MYBANK_B365 = null, BOOST15 = false;
 try { MYBANK_FD = localStorage.getItem("pb-fdbank"); } catch (e) {}
 try { MYBANK_MGM = localStorage.getItem("pb-mgmbank"); } catch (e) {}
 try { MYBANK_BGA = localStorage.getItem("pb-bgabank"); } catch (e) {}
+try { MYBANK_B365 = localStorage.getItem("pb-b365bank"); } catch (e) {}
 try { BOOST15 = localStorage.getItem("pb-boost15") === "1"; } catch (e) {}
 // Scale every displayed stake so the bet keeps the same EV *proportion* of the
 // bankroll. Source bankroll -> your bankroll; a $160 bet on a $7000 bankroll
@@ -201,6 +205,7 @@ function scaleFactor(b){
   var book = b && b.book;
   var mine = (book === "betmgm") ? (Number(MYBANK_MGM) || 0)
            : (book === "borgata") ? (Number(MYBANK_BGA) || 0)
+           : (book === "bet365") ? (Number(MYBANK_B365) || 0)
            : (Number(MYBANK_FD) || 0);
   if (!total || !mine || mine <= 0) return 1;
   return mine / total;
@@ -255,17 +260,19 @@ function head(){
     if (L) parts2.push("<b class=\"" + (L.pnl >= 0 ? "pos" : "neg") + "\">" + usd(L.h) + " " + lbl + "</b> <span class=\"" + (L.pnl >= 0 ? "pos" : "neg") + "\">(" + signed(L.pnl) + ')</span>');
   });
   if (lb) lb.innerHTML = parts2.length ? "<span class='live-tag'>LIVE:</span> " + parts2.join(" · ") : "";
-    var fd = $("fdbank"), mg = $("mgmbank"), bga = $("bgabank"), bst = $("boost15");
+    var fd = $("fdbank"), mg = $("mgmbank"), bga = $("bgabank"), b365in = $("b365bank"), bst = $("boost15");
     if (fd) fd.value = MYBANK_FD || "";
     if (mg) mg.value = MYBANK_MGM || "";
     if (bga) bga.value = MYBANK_BGA || "";
+    if (b365in) b365in.value = MYBANK_B365 || "";
     if (bst) bst.checked = !!BOOST15;
     var si = $("scaleinfo"); if (si) {
-      var fdf = scaleFactor({book: "fanduel"}), mgf = scaleFactor({book: "betmgm"}), gf = scaleFactor({book: "borgata"});
+      var fdf = scaleFactor({book: "fanduel"}), mgf = scaleFactor({book: "betmgm"}), gf = scaleFactor({book: "borgata"}), b36f = scaleFactor({book: "bet365"});
       var parts = [];
       if (fdf !== 1) parts.push("FanDuel ×" + (Math.round(fdf * 100) / 100));
       if (mgf !== 1) parts.push("BetMGM ×" + (Math.round(mgf * 100) / 100));
       if (gf !== 1) parts.push("Borgata ×" + (Math.round(gf * 100) / 100));
+      if (b36f !== 1) parts.push("bet365 ×" + (Math.round(b36f * 100) / 100));
       if (BOOST15) parts.push("+×1.5");
       si.textContent = parts.length ? "stakes scaled to your bankrolls (" + parts.join(", ") + ")" : (BOOST15 ? "×1.5 boost on" : "stakes shown at source size");
     }
@@ -448,7 +455,8 @@ function bookChips(counts, total){
 
 function renderBets(){
   var d = DATA, mine = d.mine || {};
-  var todo = (d.bets || []).filter(function(b){ return !mine[b.key]; });
+  // bet365 rows live on their own tab (renderB365) — keep them off To-place.
+  var todo = (d.bets || []).filter(function(b){ return !mine[b.key] && b.book !== "bet365"; });
   var singles = todo.filter(function(b){ return b.kind !== "parlay"; });
   var tickets = todo.filter(function(b){ return b.kind === "parlay"; });
   var picks = singles.filter(function(b){ return b.armed; });
@@ -456,7 +464,7 @@ function renderBets(){
   $("nb").textContent = picks.length;
   var anyFb = singles.some(function(b){ return b.league === "nfl" || b.league === "fifa"; });
   var h = (d.split ? "<p class=\"note\"><b>Each bet is split in two:</b> half on FanDuel, half on BetMGM. Place both halves and tap <b>I placed it</b> on each. BetMGM&rsquo;s line or odds can differ a little &mdash; the card shows BetMGM&rsquo;s own." + (anyFb ? " <b>Football and soccer bets are FanDuel only.</b>" : "") + "</p>" : "")
-    + "<p class=\"note\">Tap the bet&rsquo;s <b>BetMGM or Borgata</b> Browser button &mdash; it opens that book&rsquo;s esoccer page. Find the <b>same match</b> there, check the <b>odds on the slip</b> match the card (the link can&rsquo;t load the bet for you), place it, then tap <b>I placed it</b>. Same game is posted at both books &mdash; bet it at one, then tap <b>Skip</b> on the other row. If the book capped your stake, tap <b>Bet was limited</b> and enter the amount it accepted.</p>";
+    + "<p class=\"note\">Tap the bet&rsquo;s <b>BetMGM or Borgata</b> Browser button &mdash; it opens that book&rsquo;s esoccer page. Find the <b>same match</b> there, check the <b>odds on the slip</b> match the card (the link can&rsquo;t load the bet for you), place it, then tap <b>I placed it</b>. Same game is posted at both books &mdash; bet it at one, then tap <b>Skip</b> on the other row. If the book capped your stake, tap <b>Bet was limited</b> and enter the amount it accepted. <b>bet365 bets are on their own tab.</b></p>";
   var hideTip = false; try { hideTip = localStorage.getItem("pb-alert-tip") === d.alerts; } catch (e) {}
   if (d.alertsNote) h += "<div class=\"why\" style=\"margin:0 0 12px\">" + esc(d.alertsNote) + "</div>";
   if (d.alerts && !hideTip) h += "<div class=\"card\" style=\"padding:11px 13px\"><b>Get a ping when new bets arrive</b>"
@@ -478,6 +486,20 @@ function renderBets(){
   if (tickets.length) h += "<h2>Parlays &middot; " + tickets.length + "</h2><p class=\"note\">Extra tickets <b>on top of</b> the singles above, not instead of them &mdash; place the singles first. Once you place a basketball parlay, any other basketball parlay re-using one of its legs drops off this list." + (tickets.some(function(b){ return b.league === "fifa"; }) ? " Soccer parlays are exactly Matt&rsquo;s tickets and can share a leg &mdash; place each one." : "") + "</p>"
     + tickets.map(parlayCard).join("");
   $("v-bets").innerHTML = h;
+}
+
+function renderB365(){
+  var d = DATA, mine = d.mine || {};
+  var todo = (d.bets || []).filter(function(b){ return (b.book || "") === "bet365" && !mine[b.key]; });
+  var singles = todo.filter(function(b){ return b.kind !== "parlay"; });
+  var picks = singles.filter(function(b){ return b.armed; });
+  var watch = singles.filter(function(b){ return !b.armed; });
+  $("n365").textContent = picks.length;
+  var h = "<p class=\"note\"><b>bet365 bets.</b> The same picks as To place, posted at bet365 (you&rsquo;re not limited there). The link opens bet365 &mdash; find the <b>same match</b>, check the <b>odds on the slip</b> match the card, place it, then tap <b>I placed it</b>. Stakes scale with the <b>bet365 bankroll</b> box at the top of the page.</p>";
+  h += picks.length ? picks.map(betCard).join("")
+    : "<div class=\"empty\"><b>No bet365 picks right now</b>Every open pick also posts a bet365 twin here while it&rsquo;s bettable.</div>";
+  if (watch.length) h += "<details class=\"watch\"><summary>Also tracking " + watch.length + " more (not recommended)</summary><p class=\"note\">Below the profitable band &mdash; don&rsquo;t bet these.</p>" + watch.map(betCard).join("") + "</details>";
+  $("v-b365").innerHTML = h;
 }
 
 function placedItem(k, r){
@@ -622,8 +644,9 @@ function render(){
   head(); renderBets(); renderPlaced();
   if (TAB === "record") renderRecord();
   if (TAB === "sims") renderSims();
+  if (TAB === "b365") renderB365();
   [].forEach.call(document.querySelectorAll("nav button"), function(b){ b.classList.toggle("on", b.getAttribute("data-tab") === TAB); });
-  ["bets", "placed", "sims", "record"].forEach(function(t){ $("v-" + t).hidden = (t !== TAB); });
+  ["bets", "b365", "placed", "sims", "record"].forEach(function(t){ $("v-" + t).hidden = (t !== TAB); });
 }
 
 function lockOut(msg){
@@ -712,6 +735,12 @@ document.addEventListener("input", function(ev){
   if (ev.target && ev.target.id === "bgabank") {
     MYBANK_BGA = ev.target.value.trim();
     try { if (MYBANK_BGA) localStorage.setItem("pb-bgabank", MYBANK_BGA); else localStorage.removeItem("pb-bgabank"); } catch (e) {}
+    render();
+    return;
+  }
+  if (ev.target && ev.target.id === "b365bank") {
+    MYBANK_B365 = ev.target.value.trim();
+    try { if (MYBANK_B365) localStorage.setItem("pb-b365bank", MYBANK_B365); else localStorage.removeItem("pb-b365bank"); } catch (e) {}
     render();
     return;
   }

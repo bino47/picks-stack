@@ -361,6 +361,23 @@ def board_bets():
                 'armed': True, 'book': 'bet365', 'line': '', 'legs': [],
                 'web': 'https://www.bet365.com', 'app': 'https://www.bet365.com'})
             continue
+        # bet365 twin (user bettable there since 11-18): same pick at bet365's
+        # odds (the BetsAPI feed prices these leagues off bet365). No deep
+        # link — bet365 has no public slip resolver, so lobby link + manual
+        # match check like the h2hggl8 rows.
+        bets.append({
+            'key': base + '|bet365', 'kind': 'esb', 'league': o.get('league'),
+            'lgName': 'bet365: Soccer > Esports — find this league (e.g. Esoccer Battle - 8 mins play)',
+            'match': '%s v %s' % (o.get('home'), o.get('away')),
+            'ga': o.get('home'), 'gb': o.get('away'),
+            'market': o.get('market'), 'side': o.get('side'),
+            'price': o.get('price_am'), 'stake': o.get('stake'),
+            'start': _esb_iso(o.get('time')),
+            'note': ('model %.1f%% EV %+.1f%% | bet365: open bet365 > Soccer > Esports, '
+                     'find the same match, check the odds match before betting.'
+                     % (100 * (o.get('model_p') or 0), 100 * (o.get('ev') or 0))),
+            'armed': True, 'book': 'bet365', 'line': '', 'legs': [],
+            'web': 'https://www.bet365.com', 'app': 'https://www.bet365.com'})
         note = ('model %.1f%% EV %+.1f%%' % (100 * (o.get('model_p') or 0), 100 * (o.get('ev') or 0))
             + ' | Same game at BOTH books - place at one, then tap Skip on the other row. ')
         # exact-game deep link: resolve once, ids are shared across both books
@@ -454,6 +471,22 @@ def board_bets():
                          % (100 * (o.get('p_model') or 0), 100 * (o.get('ev') or 0))),
                 'armed': True, 'book': book, 'line': '', 'legs': [],
                 'web': web, 'app': app})
+        # bet365 twin (bettable there since 11-18): no deep-link resolver, lobby
+        # link + manual match check.
+        bets.append({
+            'key': base + '|bet365', 'kind': 'nba', 'league': 'nba',
+            'lgName': 'bet365: Basketball > E-Basketball (eBasketball H2H GG League - 4x5 mins)',
+            'match': '%s v %s' % (o.get('home'), o.get('away')),
+            'ga': o.get('home'), 'gb': o.get('away'),
+            'market': mkt, 'side': o.get('side'),
+            'price': o.get('price_am'), 'stake': o.get('stake'),
+            'start': o.get('start'),
+            'note': ('our ridge: model %.1f%% EV %+.1f%% vs the MGM line | bet365: open '
+                     'Basketball > E-Basketball, find the same match, check the odds '
+                     'match before betting.'
+                     % (100 * (o.get('p_model') or 0), 100 * (o.get('ev') or 0))),
+            'armed': True, 'book': 'bet365', 'line': '', 'legs': [],
+            'web': 'https://www.bet365.com', 'app': 'https://www.bet365.com'})
     # NBA: mirror ALL upcoming singles from the user's own board, with the
     # observer's verdict attached (armed = in the profitable >=64% band).
     # (friend card fetched once here: FD nba rows join it by key for exact
@@ -547,6 +580,23 @@ def board_bets():
             'book': nb,
             'web': web_link, 'app': app_link,
             'line': '', 'legs': []})
+        if rec:
+            # bet365 twin (bettable there since 11-18): the card's price is the
+            # source book's, so check bet365's odds match before betting.
+            bets.append({
+                'key': c.get('key') + '|bet365', 'kind': 'nba', 'league': 'nba',
+                'lgName': 'bet365: Basketball — find the same game (odds may differ)',
+                'match': c.get('match'), 'ga': (c.get('match') or '').split(' v ')[0],
+                'gb': (c.get('match') or ' v ').split(' v ')[1] if ' v ' in (c.get('match') or '') else '',
+                'market': c.get('market'), 'side': c.get('side'),
+                'price': c.get('price'), 'stake': kelly_stake if rec else 0,
+                'start': start.isoformat(),
+                'note': 'observer: model %.1f%% EV %s%% -> BET (profitable band) | bet365: '
+                        'open Basketball, find the same match, check the odds match before '
+                        'betting.' % (float(c.get('model_win') or 0), c.get('ev')),
+                'armed': True, 'book': 'bet365',
+                'web': 'https://www.bet365.com', 'app': 'https://www.bet365.com',
+                'line': '', 'legs': []})
     # FIFA (esoccer) singles: observer-scored rows joined to the friend's live
     # card for the one-click FanDuel slip links, club names and tip time.
     # Each posted key is appended to fifa_board_ledger.jsonl so /graded can
@@ -583,6 +633,22 @@ def board_bets():
                      % (float(c.get('model_win') or 0), 100 * float(c.get('ev') or 0))),
             'armed': True, 'book': 'fanduel', 'line': '', 'legs': [],
             'web': f.get('web') or '', 'app': f.get('app') or f.get('web') or ''})
+        # bet365 twin (bettable there since 11-18): same pick, lobby link.
+        bets.append({
+            'key': c.get('key') + '|bet365', 'kind': 'fifa', 'league': 'fifa',
+            'lgName': 'bet365: Soccer > Esports — find the same match (odds may differ)',
+            'match': '%s v %s' % (f.get('ga') or '?', f.get('gb') or '?'),
+            'ga': f.get('ga'), 'gb': f.get('gb'),
+            'fdName': f.get('fdName'),
+            'market': c.get('market'), 'side': c.get('side'),
+            'price': c.get('price'), 'stake': c.get('stake'),
+            'start': f.get('start'),
+            'note': ('observer: model %.1f%% EV %+.1f%% -> BET (profitable band) | bet365: '
+                     'open Soccer > Esports, find the same match, check the odds match '
+                     'before betting.'
+                     % (float(c.get('model_win') or 0), 100 * float(c.get('ev') or 0))),
+            'armed': True, 'book': 'bet365', 'line': '', 'legs': [],
+            'web': 'https://www.bet365.com', 'app': 'https://www.bet365.com'})
         if c.get('key') not in seen_led:
             seen_led.add(c.get('key'))
             new_led.append(json.dumps({
@@ -813,25 +879,30 @@ def graded_rows():
             return []
     for o in rows(os.path.join(HIST, 'esb_paper_ledger.jsonl')):
         if o.get('status') in ('win', 'loss', 'push'):
-            # the board posts each esb pick as TWO rows (betmgm + borgata), so
-            # grade both suffixed keys; the un-placed twin simply never shows.
+            # the board posts each esb pick as TWO rows (betmgm + borgata) plus
+            # a bet365 twin, so grade all suffixed keys; the un-placed twins
+            # simply never show.
             base = 'esb:%s:%s' % (o.get('event_id'), (o.get('side') or '').strip())
             # h2hggl8 rows are posted bet365-only: grade just that suffixed key
-            books = ('bet365',) if o.get('league') == 'h2hggl8' else ('betmgm', 'borgata')
+            books = ('bet365',) if o.get('league') == 'h2hggl8' else ('bet365', 'betmgm', 'borgata')
             for book in books:
                 out.append({'key': base + '|' + book,
                             'result': o['status'], 'pnl': o.get('pnl')})
-    # our own eBasketball GG ridge picks (posted as betmgm/borgata twins)
+    # our own eBasketball GG ridge picks (posted as betmgm/borgata twins plus a
+    # bet365 twin)
     for o in rows(os.path.join(HIST, 'esb_bb_paper_ledger.jsonl')):
         if o.get('status') == 'settled' and o.get('result') in ('win', 'loss', 'push'):
             base = 'bb:%s' % o.get('bbid')
-            for book in ('betmgm', 'borgata'):
+            for book in ('bet365', 'betmgm', 'borgata'):
                 out.append({'key': base + '|' + book,
                             'result': o['result'], 'pnl': o.get('pnl')})
     for name in ('model_sb_ledger.jsonl', 'model_ledger.jsonl'):
         for o in rows(os.path.join(HERE, name)):
             if o.get('result') in ('win', 'loss', 'push') and o.get('key'):
                 out.append({'key': o['key'], 'result': o['result'], 'pnl': o.get('pnl')})
+                # the board also posts a bet365 twin of every NBA single
+                out.append({'key': o['key'] + '|bet365', 'result': o['result'],
+                            'pnl': o.get('pnl')})
     # FIFA picks posted to the board: grade against the H2H feed results
     # ($HIST/history/real_games.json, written by the scorer's feed fetcher).
     try:
@@ -843,6 +914,8 @@ def graded_rows():
         if res:
             # pnl is computed board-side from the placement's own price/stake
             out.append({'key': o.get('key'), 'result': res, 'pnl': None})
+            # plus the bet365 twin of the same pick
+            out.append({'key': o.get('key') + '|bet365', 'result': res, 'pnl': None})
     # manual/backfill grades (seeded from the repo; survives /var/data wipes).
     # Orphaned board placements whose pipeline ledger row was wiped by a
     # deploy settle from here — pnl stays None so the board recomputes it
