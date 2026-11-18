@@ -630,7 +630,7 @@ def board_bets():
             'note': ('observer: model %.1f%% EV %+.1f%% -> BET (profitable band)'
                      ' | FanDuel: the button loads the exact selection - check'
                      ' the odds on the slip match before betting.'
-                     % (float(c.get('model_win') or 0), 100 * float(c.get('ev') or 0))),
+                     % (float(c.get('model_win') or 0), float(c.get('ev') or 0))),
             'armed': True, 'book': 'fanduel', 'line': '', 'legs': [],
             'web': f.get('web') or '', 'app': f.get('app') or f.get('web') or ''})
         # bet365 twin (bettable there since 11-18): same pick, lobby link.
@@ -646,7 +646,7 @@ def board_bets():
             'note': ('observer: model %.1f%% EV %+.1f%% -> BET (profitable band) | bet365: '
                      'open Soccer > Esports, find the same match, check the odds match '
                      'before betting.'
-                     % (float(c.get('model_win') or 0), 100 * float(c.get('ev') or 0))),
+                     % (float(c.get('model_win') or 0), float(c.get('ev') or 0))),
             'armed': True, 'book': 'bet365', 'line': '', 'legs': [],
             'web': 'https://www.bet365.com', 'app': 'https://www.bet365.com'})
         if c.get('key') not in seen_led:
