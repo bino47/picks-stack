@@ -223,12 +223,27 @@ def _ev_at(p, am):
     return float(p) * d - 1.0
 
 
+def _q_am(q):
+    """bet365 quote -> American price, for either quote shape:
+    esb quotes are (am, quote_time) tuples, bb quotes are {'am': ...} dicts."""
+    if isinstance(q, dict):
+        return q.get('am')
+    if isinstance(q, (tuple, list)) and q:
+        return q[0]
+    return None
+
+
 def _esb_note_ev(o, q):
     """EV fraction for a bet365 twin note: recompute at the REAL quoted price
     when bet365's odds differ from the card (the card's own ev is priced at the
-    source book) — the displayed price and the displayed EV must agree."""
-    if q:
-        ev = _ev_at(o.get('model_p'), q[0])
+    source book) — the displayed price and the displayed EV must agree.
+    Works across ledger schemas: esb rows carry model_p, bb rows p_model."""
+    am = _q_am(q)
+    if am is not None:
+        p = o.get('model_p')
+        if p is None:
+            p = o.get('p_model')
+        ev = _ev_at(p, am)
         if ev is not None:
             return ev
     return o.get('ev') or 0
@@ -749,7 +764,7 @@ def board_bets():
             'price': (q['am'] if q else o.get('price_am')), 'stake': o.get('stake'),
             'start': o.get('start'),
             'note': ('our ridge: model %.1f%% EV %+.1f%% vs the MGM line'
-                     % (100 * (o.get('p_model') or 0), 100 * (o.get('ev') or 0))
+                     % (100 * (o.get('p_model') or 0), 100 * _esb_note_ev(o, q))
                      + _b365_twin_note(q, o.get('price_am'), o.get('line'),
                                        ' | bet365: open Basketball > E-Basketball, '
                                        'find the same match.')),
