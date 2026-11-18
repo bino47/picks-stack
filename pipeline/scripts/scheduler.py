@@ -386,10 +386,12 @@ def board_bets():
     for o in rows:
         if o.get('status') != 'open':
             continue
-        # only show games that haven't started yet (stale picks expire, not display)
+        # show games that haven't started yet, plus a ~9-min live grace so the
+        # bet365 twin can still resolve the exact (in-play-only) esoccer game.
+        # Stale picks past the grace expire, not display.
         try:
             st_ts = int(o.get('time') or 0)
-            if st_ts and st_ts < time.time():
+            if st_ts and st_ts + 540 < time.time():
                 continue
         except Exception:
             pass
@@ -675,8 +677,10 @@ def board_bets():
         if not f or not f.get('start'):
             continue  # friend's card rotated: nothing to link -> off the board
         try:
-            if dt.datetime.fromisoformat(f['start']) < dt.datetime.now(dt.timezone.utc):
-                continue  # already kicked off
+            # ~9-min live grace so the bet365 twin can still resolve the exact
+            # (in-play-only) esoccer game; stale picks past it drop off.
+            if dt.datetime.fromisoformat(f['start']) < dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=9):
+                continue  # kicked off + grace elapsed
         except Exception:
             pass
         bets.append({
