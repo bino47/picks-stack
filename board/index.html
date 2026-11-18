@@ -585,7 +585,7 @@ function renderSims(){
   h+="<div class=\"stats\">"+simsStat(esb,"Esoccer sims")+"</div>";
   var open=[].concat(
     esb.filter(function(r){return (r.status||"").toLowerCase()==="open";}).map(function(r){
-      return {t:(r.home||"")+" v "+(r.away||""), p:r.side, am:r.price_am, dec:r.price_dec, pw:Math.round(100*(r.model_p||0)), ev:r.ev, st:r.stake, when:r.time?Number(r.time)*1000:null, lg:ESLG[r.league]||r.league, src:"esoccer", lk:r.links||{}};
+      return {t:r.bookName||((r.home||"")+" v "+(r.away||"")), p:r.sideBook||r.side, am:r.price_am, dec:r.price_dec, pw:Math.round(100*(r.model_p||0)), ev:r.ev, st:r.stake, when:r.time?Number(r.time)*1000:null, lg:r.bookLg||(ESLG[r.league]||r.league), src:"esoccer", lk:r.links||{}};
     })
   ).sort(function(a,b){return (a.when||0)-(b.when||0);});
   var slips=[], nolink=[];

@@ -583,6 +583,7 @@ def _mgm_fixtures(sport):
                     _MGM_CACHE['fx'][sp] = [
                         {'id': x['id'],
                          'name': (x.get('name') or {}).get('value') or '',
+                         'lg': ((x.get('competition') or {}).get('name') or {}).get('value') or '',
                          'start': x.get('startDate')}
                         for x in (d.get('fixtures') or [])]
                 _MGM_CACHE['at'] = now
@@ -598,12 +599,18 @@ def _mgm_tags(s):
     return [re.sub(r'[^A-Z0-9]', '', x.upper()) for x in t] or \
            [re.sub(r'[^A-Z0-9]', '', s.upper())]
 
-def _mgm_event_path(sport, home, away, start_ts, window=300):
-    """'events/<slug>-<id>' for the fixture matching both tags + start time"""
+def _mgm_event(sport, home, away, start_ts, window=300):
+    """the book fixture matching both gamer tags + start time, or None.
+
+    The gamer tags are the only stable identity across providers: the same
+    virtual match is labeled with different club names by BetsAPI/bet365
+    ("PSG (RossFCDK) v Bayern (DangerDim77)") and by the Entain books
+    ("Paris (RossFCDK) - Bayern Munchen (DangerDim77)") — match on tags,
+    then use the book's own name for display."""
     want = _mgm_tags(home or '') + _mgm_tags(away or '')
     want = [w for w in want if w]
     if not want:
-        return ''
+        return None
     best, bd = None, None
     for f in _mgm_fixtures(sport):
         try:
@@ -618,10 +625,31 @@ def _mgm_event_path(sport, home, away, start_ts, window=300):
             continue
         if best is None or abs(ts - start_ts) < bd:
             best, bd = f, abs(ts - start_ts)
+    return best
+
+
+def _mgm_event_path(sport, home, away, start_ts, window=300):
+    """'events/<slug>-<id>' for the fixture matching both tags + start time"""
+    best = _mgm_event(sport, home, away, start_ts, window)
     if not best:
         return ''
     slug = '-'.join(re.sub(r'[^a-z0-9]+', ' ', best['name'].lower()).split())
     return 'events/%s-%s' % (slug, best['id'])
+
+
+def _mgm_side_book(side, book_name):
+    """the pick's name as the BOOK writes it: the half of the book fixture
+    name carrying the pick's gamer tag ("Paris (RossFCDK)" for a side
+    logged as "PSG (RossFCDK)"). Empty when the side carries no tag."""
+    t = re.findall(r'\(([^)]+)\)', str(side or ''))
+    if not t:
+        return ''
+    want = re.sub(r'[^A-Z0-9]', '', t[0].upper())
+    for half in re.split(r'\s+-\s+', str(book_name or '')):
+        ht = re.findall(r'\(([^)]+)\)', half)
+        if ht and re.sub(r'[^A-Z0-9]', '', ht[0].upper()) == want:
+            return half.strip()
+    return ''
 
 def _mgm_links(path, book):
     """(web, app) links for a book given a shared event path, else None"""
@@ -665,15 +693,29 @@ def _enrich_sims(text, sport, home_fn, away_fn, ts_fn):
         if sport and (o.get('status') or '').lower() == 'open':
             sig = (home_fn(o), away_fn(o), ts_fn(o))
             if sig not in memo:
-                memo[sig] = _mgm_event_path(sport, sig[0] or '', sig[1] or '',
-                                             sig[2]) or ''
+                memo[sig] = _mgm_event(sport, sig[0] or '', sig[1] or '',
+                                       sig[2])
+            fx = memo[sig]
+            path = ('events/%s-%s' % (
+                '-'.join(re.sub(r'[^a-z0-9]+', ' ', fx['name'].lower()).split()),
+                fx['id'])) if fx else ''
             links = {}
             for book in ('betmgm', 'borgata'):
-                L = _mgm_links(memo[sig], book)
+                L = _mgm_links(path, book)
                 if L:
                     links[book] = {'web': L[0], 'app': L[1]}
             if links:
                 o['links'] = links
+                # the books label the SAME virtual match with their own club
+                # names ("Paris (RossFCDK) - Bayern Munchen (DangerDim77)",
+                # league "E-soccer - Battle Champions League 2x4 Minutes") —
+                # show those on the linked row so what the user reads on the
+                # board is exactly what the book shows after the tap.
+                o['bookName'] = fx['name']
+                o['bookLg'] = fx.get('lg') or ''
+                sb = _mgm_side_book(o.get('side'), fx['name'])
+                if sb:
+                    o['sideBook'] = sb
         out.append(json.dumps(o))
     return '\n'.join(out)
 
