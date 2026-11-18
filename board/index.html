@@ -495,7 +495,11 @@ function renderB365(){
   var picks = singles.filter(function(b){ return b.armed; });
   var watch = singles.filter(function(b){ return !b.armed; });
   $("n365").textContent = picks.length;
-  var h = "<p class=\"note\"><b>bet365 bets.</b> The same picks as To place, posted at bet365 (you&rsquo;re not limited there). The link opens bet365 &mdash; find the <b>same match</b>, check the <b>odds on the slip</b> match the card, place it, then tap <b>I placed it</b>. Stakes scale with the <b>bet365 bankroll</b> box at the top of the page.</p>";
+  var bval = MYBANK_B365 ? usd(Number(MYBANK_B365), true) : "";
+  var bf = scaleFactor({book: "bet365"});
+  var lab = bval ? "bet365 bankroll: " + bval + (bf !== 1 ? " (\u00d7" + (Math.round(bf * 100) / 100) + ")" : "") : "Set bet365 bankroll";
+  var h = "<div class=\"all\"><button class=\"btn sm b365\" data-act=\"b365bank\">" + esc(lab) + "</button><span>tap to set &mdash; bet365 stakes scale to it</span></div>"
+    + "<p class=\"note\"><b>bet365 bets.</b> The same picks as To place, posted at bet365 (you&rsquo;re not limited there). The link opens bet365 &mdash; find the <b>same match</b>, check the <b>odds on the slip</b> match the card, place it, then tap <b>I placed it</b>. Stakes scale with the <b>bet365 bankroll</b> box at the top of the page.</p>";
   h += picks.length ? picks.map(betCard).join("")
     : "<div class=\"empty\"><b>No bet365 picks right now</b>Every open pick also posts a bet365 twin here while it&rsquo;s bettable.</div>";
   if (watch.length) h += "<details class=\"watch\"><summary>Also tracking " + watch.length + " more (not recommended)</summary><p class=\"note\">Below the profitable band &mdash; don&rsquo;t bet these.</p>" + watch.map(betCard).join("") + "</details>";
@@ -704,6 +708,16 @@ document.addEventListener("click", function(ev){
     render(); return; }
   var a = t.getAttribute("data-act"), k = t.getAttribute("data-k"), b = betBy(k);
   ev.preventDefault();
+  if (a === "b365bank") {
+    var v = prompt("bet365 bankroll ($)\n\nStakes on the bet365 tab scale by this bankroll, same EV proportion as the model's sizing. Clear the field to show source sizes.", MYBANK_B365 || "");
+    if (v === null) return;
+    MYBANK_B365 = String(v).trim();
+    try { if (MYBANK_B365) localStorage.setItem("pb-b365bank", MYBANK_B365); else localStorage.removeItem("pb-b365bank"); } catch (e) {}
+    var inp = document.getElementById("b365bank"); if (inp) inp.value = MYBANK_B365;
+    toast(MYBANK_B365 ? "bet365 bankroll set: $" + MYBANK_B365 : "bet365 bankroll cleared — source sizes shown");
+    render();
+    return;
+  }
   if (a === "hidetip") { try { localStorage.setItem("pb-alert-tip", k); } catch (e) {} render(); return; }
   if (a === "open" || a === "limited") { OPEN[k] = a === "limited" ? "limited" : true; if (a === "limited") EDIT[k] = Object.assign({}, EDIT[k] || {}, {amount: "", limited: true}); render(); var f = document.querySelector("form.place[data-k=\"" + CSS.escape(k) + "\"] input"); if (f) f.focus(); return; }
   if (a === "close") { delete OPEN[k]; delete EDIT[k]; if (document.activeElement) document.activeElement.blur(); render(); return; }
