@@ -10,7 +10,8 @@ Web endpoints (for the local boards / any viewer to pull):
   GET /          status page
   GET /data      {esb_ledger, model_sb_ledger, kalshi state}
 """
-import json, os, re, subprocess, sys, threading, time, calendar, datetime as dt
+import json, os, re, subprocess, sys, threading, time, calendar, base64
+import datetime as dt
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -18,6 +19,87 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 HIST = os.environ.get('SCORER_HISTORY_DIR', os.path.join(HERE, 'data'))
 PY = sys.executable
 os.makedirs(HIST, exist_ok=True)
+
+# ---- pipeline ledger backup (GitHub branch, mirrors the board shim) --------
+# /var/data and the service fs are BOTH ephemeral on the Render free tier:
+# every deploy/spin-down wipes the paper ledgers, permanently orphaning any
+# board placement whose pick has not settled yet. Snapshot them to the
+# board-db branch (distinct filenames; the board only restores board.db.bak)
+# and restore on boot when a local ledger is fresh. No-op without the token.
+GH_TOKEN  = (os.environ.get('GH_BACKUP_TOKEN') or '').strip()
+GH_REPO   = (os.environ.get('GH_BACKUP_REPO') or 'bino47/picks-stack').strip()
+GH_BRANCH = (os.environ.get('GH_BACKUP_BRANCH') or 'board-db').strip()
+LEDGER_FILES = {                      # remote path -> local path
+    'pipeline/ledgers/esb_paper_ledger.jsonl':    os.path.join(HIST, 'esb_paper_ledger.jsonl'),
+    'pipeline/ledgers/esb_bb_paper_ledger.jsonl': os.path.join(HIST, 'esb_bb_paper_ledger.jsonl'),
+    'pipeline/ledgers/fifa_board_ledger.jsonl':   os.path.join(HIST, 'fifa_board_ledger.jsonl'),
+    'pipeline/ledgers/model_sb_ledger.jsonl':     os.path.join(HERE, 'model_sb_ledger.jsonl'),
+}
+_last_pushed = {}
+
+def _gh(path, method='GET', body=None, timeout=30):
+    req = urllib.request.Request('https://api.github.com' + path,
+        headers={'Authorization': 'token ' + GH_TOKEN,
+                 'Accept': 'application/vnd.github+json',
+                 'Content-Type': 'application/json'},
+        method=method, data=json.dumps(body).encode() if body is not None else None)
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.status, json.loads(r.read().decode() or '{}')
+
+def ledgers_restore():
+    """Boot: restore any ledger that is missing/empty locally."""
+    if not GH_TOKEN:
+        return
+    for rpath, lpath in LEDGER_FILES.items():
+        try:
+            local = os.path.exists(lpath) and os.path.getsize(lpath) > 0
+            if local:
+                continue
+            st, d = _gh(f'/repos/{GH_REPO}/contents/{rpath}?ref={GH_BRANCH}')
+            raw = base64.b64decode(d.get('content') or b'')
+            if not raw:
+                continue
+            os.makedirs(os.path.dirname(lpath), exist_ok=True)
+            with open(lpath, 'wb') as f:
+                f.write(raw)
+            _last_pushed[rpath] = raw
+            print('ledger restore:', rpath, '->', lpath)
+        except Exception as e:
+            print('ledger restore skipped:', rpath, e)
+
+def _ledger_backup_loop():
+    """Every 10 min: push ledgers whose bytes changed since the last push."""
+    if not GH_TOKEN:
+        return
+    while True:
+        time.sleep(600)
+        for rpath, lpath in LEDGER_FILES.items():
+            try:
+                if not (os.path.exists(lpath) and os.path.getsize(lpath)):
+                    continue
+                with open(lpath, 'rb') as f:
+                    raw = f.read()
+                if _last_pushed.get(rpath) == raw:
+                    continue
+                sha = None
+                try:
+                    st, d = _gh(f'/repos/{GH_REPO}/contents/{rpath}?ref={GH_BRANCH}')
+                    sha = d.get('sha')
+                    if base64.b64decode(d.get('content') or b'') == raw:
+                        _last_pushed[rpath] = raw
+                        continue        # remote already matches local
+                except Exception:
+                    sha = None
+                body = {'message': 'pipeline ledger backup ' + rpath,
+                        'content': base64.b64encode(raw).decode(),
+                        'branch': GH_BRANCH}
+                if sha:
+                    body['sha'] = sha
+                _gh(f'/repos/{GH_REPO}/contents/{rpath}', method='PUT', body=body)
+                _last_pushed[rpath] = raw
+            except Exception as e:
+                print('ledger backup failed:', rpath, e)
+
 
 JOBS = [
     # (name, interval_s, script, args)
@@ -229,7 +311,9 @@ def _grade_fifa(o, games_by_date):
     m = re.match(r'(?i)^(%s|%s)\s+to\s+win$' % (re.escape(ga_u), re.escape(gb_u)), side)
     if m:
         d = marg if m.group(1).upper() == ga_u else -marg
-        return 'win' if d > 0 else ('push' if d == 0 else 'loss')
+        # 3-way 'to win': a DRAW loses the bet (FanDuel 3-way has no push;
+        # the source ledger scores draw-to-win as loss — retro-verified).
+        return 'win' if d > 0 else 'loss'
     return None
 
 
@@ -759,6 +843,15 @@ def graded_rows():
         if res:
             # pnl is computed board-side from the placement's own price/stake
             out.append({'key': o.get('key'), 'result': res, 'pnl': None})
+    # manual/backfill grades (seeded from the repo; survives /var/data wipes).
+    # Orphaned board placements whose pipeline ledger row was wiped by a
+    # deploy settle from here — pnl stays None so the board recomputes it
+    # from the user's own stake/price (see board settle_pass).
+    seen = {r['key'] for r in out}
+    for o in rows(os.path.join(HIST, 'manual_graded.jsonl')):
+        if o.get('key') and o.get('result') in ('win', 'loss', 'push') \
+                and o['key'] not in seen:
+            out.append({'key': o['key'], 'result': o['result'], 'pnl': None})
     return out
 
 
@@ -823,6 +916,8 @@ class H(BaseHTTPRequestHandler):
 
 if __name__ == '__main__':
     _last_ok['_boot'] = dt.datetime.utcnow().isoformat() + 'Z'
+    ledgers_restore()
+    threading.Thread(target=_ledger_backup_loop, daemon=True).start()
     threading.Thread(target=loop, daemon=True).start()
     port = int(os.environ.get('PORT', '10000'))
     ThreadingHTTPServer(('0.0.0.0', port), H).serve_forever()
