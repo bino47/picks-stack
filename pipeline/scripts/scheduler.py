@@ -202,6 +202,38 @@ def read_tail(path, n=400):
 
 
 # ---------- board shim: serve bets/graded in the hosted board's format ----------
+def _am2dec(v):
+    """American odds -> decimal, or None."""
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return None
+    if v > 0:
+        return 1 + v / 100.0
+    if v < 0:
+        return 1 + 100.0 / abs(v)
+    return None
+
+
+def _ev_at(p, am):
+    """EV FRACTION of betting price `am` at model prob p (0-1); None if unknown."""
+    d = _am2dec(am)
+    if d is None or p is None:
+        return None
+    return float(p) * d - 1.0
+
+
+def _esb_note_ev(o, q):
+    """EV fraction for a bet365 twin note: recompute at the REAL quoted price
+    when bet365's odds differ from the card (the card's own ev is priced at the
+    source book) — the displayed price and the displayed EV must agree."""
+    if q:
+        ev = _ev_at(o.get('model_p'), q[0])
+        if ev is not None:
+            return ev
+    return o.get('ev') or 0
+
+
 def _esb_iso(ts):
     try:
         return dt.datetime.fromtimestamp(int(ts), dt.timezone.utc).isoformat()
@@ -572,7 +604,7 @@ def board_bets():
                 'market': o.get('market'), 'side': o.get('side'),
                 'price': (q[0] if q else o.get('price_am')), 'stake': o.get('stake'),
                 'start': _esb_iso(o.get('time')),
-                'note': ('model %.1f%% EV %+.1f%%' % (100 * (o.get('model_p') or 0), 100 * (o.get('ev') or 0))
+                'note': ('model %.1f%% EV %+.1f%%' % (100 * (o.get('model_p') or 0), 100 * _esb_note_ev(o, q))
                          + ((' | bet365 now @ %s (quote %s UTC, card %s)'
                              % (q[0], q[1], o.get('price_am'))) if q
                             else ' | bet365: no live quote — verify odds before betting')
@@ -599,7 +631,7 @@ def board_bets():
             'price': (q[0] if q else o.get('price_am')), 'stake': o.get('stake'),
             'start': _esb_iso(o.get('time')),
             'note': ('model %.1f%% EV %+.1f%% | bet365: '
-                     % (100 * (o.get('model_p') or 0), 100 * (o.get('ev') or 0))
+                     % (100 * (o.get('model_p') or 0), 100 * _esb_note_ev(o, q))
                      + (('now @ %s (quote %s UTC, card %s) — '
                          % (q[0], q[1], o.get('price_am'))) if q
                         else 'no live quote — verify odds. ')
@@ -857,6 +889,12 @@ def board_bets():
             else:
                 bnm = ''
             bdisp = bnm if ' v ' in bnm else disp
+            # EV on the twin must match the price shown: recompute at bet365's
+            # REAL quoted price when it differs from the card (observer ev is
+            # percent units, priced at the source book's odds).
+            _evq = (_ev_at(float(c.get('model_win') or 0) / 100.0, q['am'])
+                    if q else None)
+            _evpct = (100.0 * _evq) if _evq is not None else float(c.get('ev') or 0)
             bets.append({
                 'key': c.get('key') + '|bet365', 'kind': 'nba', 'league': 'nba',
                 'lgName': 'bet365: Basketball — find the same game (odds may differ)',
@@ -865,8 +903,8 @@ def board_bets():
                 'market': c.get('market'), 'side': c.get('side'),
                 'price': (q['am'] if q else c.get('price')), 'stake': kelly_stake if rec else 0,
                 'start': start.isoformat(),
-                'note': 'observer: model %.1f%% EV %s%% -> BET (profitable band)'
-                        % (float(c.get('model_win') or 0), c.get('ev'))
+                'note': 'observer: model %.1f%% EV %.1f%% -> BET (profitable band)'
+                        % (float(c.get('model_win') or 0), _evpct)
                         + _b365_twin_note(q, c.get('price'), card_line,
                                           ' | bet365: open Basketball, find the same match.'),
                 'armed': True, 'book': 'bet365',
