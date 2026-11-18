@@ -317,6 +317,57 @@ def _grade_fifa(o, games_by_date):
     return None
 
 
+# ---- bet365 deep-link resolver (Pulse Score; esoccer is in-play only) -------
+# bet365 lists its esoccer (Battle / H2H GG) games essentially in-play only:
+# Pulse Score returns fresh slugs for LIVE games via /live-events?sport=soccer
+# (slug '/#/IP/EV…C1'), while pre-match esoccer is stale/empty in that feed.
+# So the exact-game link resolves once the game is live; before kickoff the
+# row falls back to the lobby link. Matches by gamer tags (the only stable
+# identity across providers), never by club names.
+_PS = {'at': 0.0, 'live': []}
+_PS_LOCK = threading.Lock()
+
+def _bet365_live(ttl=90):
+    """Pulse Score live bet365 soccer events, cached; [] on any failure."""
+    key = (os.environ.get('PULSESCORE_KEY') or '').strip()
+    if not key:
+        return []
+    now = time.time()
+    if now - _PS['at'] < ttl:
+        return _PS['live']
+    if not _PS_LOCK.acquire(blocking=False):
+        return _PS['live']
+    try:
+        req = urllib.request.Request(
+            'https://api.pulsescore.net/api/v3/bet365/live-events?sport=soccer&limit=100',
+            headers={'X-Secret': key, 'User-Agent': 'board-host/1.0'})
+        d = json.loads(urllib.request.urlopen(req, timeout=12).read().decode())
+        _PS['live'] = [{'home': e.get('home') or '', 'away': e.get('away') or '',
+                        'league': e.get('league') or '', 'slug': e.get('slug') or ''}
+                       for e in (d.get('events') or [])]
+        _PS['at'] = now
+    except Exception:
+        _PS['at'] = now    # back off this cycle; lobby links serve
+    finally:
+        _PS_LOCK.release()
+    return _PS['live']
+
+def _bet365_slug(home, away):
+    """bet365 deep-link slug for the LIVE esoccer game matching both tags."""
+    want = set(_mgm_tags(home or '') + _mgm_tags(away or ''))
+    want = {w for w in want if w}
+    if not want:
+        return ''
+    for e in _bet365_live():
+        lg = (e['league'] or '').lower()
+        if not ('esoccer' in lg or 'battle' in lg or 'gg league' in lg):
+            continue
+        have = set(_mgm_tags(e['home'])) | set(_mgm_tags(e['away']))
+        if want.issubset(have) and e.get('slug'):
+            return e['slug']
+    return ''
+
+
 def board_bets():
     bets = []
     # partner profile: live bankrolls from the books (the board header reads these)
@@ -346,7 +397,10 @@ def board_bets():
         if o.get('league') == 'h2hggl8':
             # bet365-only league ("Esoccer H2H GG League - 8 mins play"):
             # no MGM/Borgata twin row and no cds-api resolver (different
-            # provider). Single bet365 row, lobby link, manual match check.
+            # provider). Single bet365 row, lobby link fallback + exact-game
+            # deep link once the game is LIVE (Pulse Score esoccer is
+            # in-play only — no pre-match slug).
+            b365 = _bet365_slug(o.get('home'), o.get('away'))
             bets.append({
                 'key': base + '|bet365', 'kind': 'esb', 'league': o.get('league'),
                 'lgName': 'bet365: Soccer > Esports > Esoccer H2H GG League - 8 mins play',
@@ -356,15 +410,19 @@ def board_bets():
                 'price': o.get('price_am'), 'stake': o.get('stake'),
                 'start': _esb_iso(o.get('time')),
                 'note': ('model %.1f%% EV %+.1f%%' % (100 * (o.get('model_p') or 0), 100 * (o.get('ev') or 0))
-                         + ' | bet365 only: open bet365 > Soccer > Esports > Esoccer H2H GG '
-                           'League - 8 mins play and check the odds match before betting.'),
+                         + (' | bet365: opens the exact game — check the odds match before betting.'
+                            if b365 else
+                            ' | bet365 only: open bet365 > Soccer > Esports > Esoccer H2H GG '
+                            'League - 8 mins play and check the odds match before betting.')),
                 'armed': True, 'book': 'bet365', 'line': '', 'legs': [],
-                'web': 'https://www.bet365.com', 'app': 'https://www.bet365.com'})
+                'web': ('https://www.bet365.com' + b365) if b365 else 'https://www.bet365.com',
+                'app': ('https://www.bet365.com' + b365) if b365 else 'https://www.bet365.com'})
             continue
         # bet365 twin (user bettable there since 11-18): same pick at bet365's
-        # odds (the BetsAPI feed prices these leagues off bet365). No deep
-        # link — bet365 has no public slip resolver, so lobby link + manual
-        # match check like the h2hggl8 rows.
+        # odds (the BetsAPI feed prices these leagues off bet365). Exact-game
+        # deep link once LIVE (Pulse Score esoccer is in-play only); lobby
+        # fallback + manual match check before kickoff.
+        b365 = _bet365_slug(o.get('home'), o.get('away'))
         bets.append({
             'key': base + '|bet365', 'kind': 'esb', 'league': o.get('league'),
             'lgName': 'bet365: Soccer > Esports — find this league (e.g. Esoccer Battle - 8 mins play)',
@@ -373,11 +431,14 @@ def board_bets():
             'market': o.get('market'), 'side': o.get('side'),
             'price': o.get('price_am'), 'stake': o.get('stake'),
             'start': _esb_iso(o.get('time')),
-            'note': ('model %.1f%% EV %+.1f%% | bet365: open bet365 > Soccer > Esports, '
-                     'find the same match, check the odds match before betting.'
-                     % (100 * (o.get('model_p') or 0), 100 * (o.get('ev') or 0))),
+            'note': ('model %.1f%% EV %+.1f%% | bet365: '
+                     % (100 * (o.get('model_p') or 0), 100 * (o.get('ev') or 0))
+                     + ('opens the exact game — check the odds match before betting.'
+                        if b365 else
+                        'open bet365 > Soccer > Esports, find the same match, check the odds match before betting.')),
             'armed': True, 'book': 'bet365', 'line': '', 'legs': [],
-            'web': 'https://www.bet365.com', 'app': 'https://www.bet365.com'})
+            'web': ('https://www.bet365.com' + b365) if b365 else 'https://www.bet365.com',
+            'app': ('https://www.bet365.com' + b365) if b365 else 'https://www.bet365.com'})
         note = ('model %.1f%% EV %+.1f%%' % (100 * (o.get('model_p') or 0), 100 * (o.get('ev') or 0))
             + ' | Same game at BOTH books - place at one, then tap Skip on the other row. ')
         # exact-game deep link: resolve once, ids are shared across both books
@@ -633,7 +694,9 @@ def board_bets():
                      % (float(c.get('model_win') or 0), float(c.get('ev') or 0))),
             'armed': True, 'book': 'fanduel', 'line': '', 'legs': [],
             'web': f.get('web') or '', 'app': f.get('app') or f.get('web') or ''})
-        # bet365 twin (bettable there since 11-18): same pick, lobby link.
+        # bet365 twin (bettable there since 11-18): same pick, exact-game deep
+        # link once LIVE, lobby fallback before kickoff.
+        b365 = _bet365_slug(f.get('ga'), f.get('gb'))
         bets.append({
             'key': c.get('key') + '|bet365', 'kind': 'fifa', 'league': 'fifa',
             'lgName': 'bet365: Soccer > Esports — find the same match (odds may differ)',
@@ -644,11 +707,14 @@ def board_bets():
             'price': c.get('price'), 'stake': c.get('stake'),
             'start': f.get('start'),
             'note': ('observer: model %.1f%% EV %+.1f%% -> BET (profitable band) | bet365: '
-                     'open Soccer > Esports, find the same match, check the odds match '
-                     'before betting.'
-                     % (float(c.get('model_win') or 0), float(c.get('ev') or 0))),
+                     % (float(c.get('model_win') or 0), float(c.get('ev') or 0))
+                     + ('opens the exact game — check the odds match before betting.'
+                        if b365 else
+                        'open Soccer > Esports, find the same match, check the odds match '
+                        'before betting.')),
             'armed': True, 'book': 'bet365', 'line': '', 'legs': [],
-            'web': 'https://www.bet365.com', 'app': 'https://www.bet365.com'})
+            'web': ('https://www.bet365.com' + b365) if b365 else 'https://www.bet365.com',
+            'app': ('https://www.bet365.com' + b365) if b365 else 'https://www.bet365.com'})
         if c.get('key') not in seen_led:
             seen_led.add(c.get('key'))
             new_led.append(json.dumps({
