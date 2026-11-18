@@ -449,6 +449,18 @@ def _b365_esb_quote(o):
     am = _dec2am(od)
     return (am, _hm(row.get('add_time'))) if am is not None else None
 
+def _b365_bb_event(tags):
+    """The bet365 GG event whose two gamer tags match (or None)."""
+    want = {str(t or '').upper() for t in tags}
+    want.discard('')
+    if len(want) != 2:
+        return None
+    for e in _b365_upcoming():
+        if {_tag1((e.get('home') or {}).get('name')),
+                _tag1((e.get('away') or {}).get('name'))} == want:
+            return e
+    return None
+
 def _b365_bb_quote(tags, market, side_tag, ou):
     """Real bet365 quote for an eBasketball GG pick; tags identify the game.
 
@@ -456,16 +468,7 @@ def _b365_bb_quote(tags, market, side_tag, ou):
     when bet365 has no prematch odds for the fixture (the row then falls back
     to the source-book price with a verify flag).
     """
-    want = {str(t or '').upper() for t in tags}
-    want.discard('')
-    if len(want) != 2:
-        return None
-    ev = None
-    for e in _b365_upcoming():
-        if {_tag1((e.get('home') or {}).get('name')),
-                _tag1((e.get('away') or {}).get('name'))} == want:
-            ev = e
-            break
+    ev = _b365_bb_event(tags)
     if not ev:
         return None
     r = _b365_odds(ev['id'])
@@ -781,6 +784,15 @@ def board_bets():
         # FanDuel rows keep the plain lobby links (no resolver for FD yet).
         nb = (c.get('book') or 'fanduel').strip().lower()
         mparts = (c.get('match') or ' v ').split(' v ')
+        # display names: the friend card's fdName carries the full club names
+        # ("Oklahoma City Thunder (GENERAL) @ Boston Celtics (FRENZY)") while
+        # the scored card keeps only the tags ("GENERAL v FRENZY") — without
+        # this join every 2K totals row shows anonymous tags (2026-11-18).
+        frow = fby.get(c.get('key')) or {}
+        fdn = (frow.get('fdName') or '').split(' @ ')
+        dn_a = fdn[0].strip() if len(fdn) > 1 else ''
+        dn_b = fdn[1].strip() if len(fdn) > 1 else ''
+        disp = ('%s v %s' % (dn_a, dn_b)) if (dn_a and dn_b) else (c.get('match') or '')
         epath = _mgm_event_path(119, mparts[0],
                                 mparts[1] if len(mparts) > 1 else '',
                                 start.timestamp()) if nb in ('betmgm', 'borgata') else ''
@@ -800,8 +812,8 @@ def board_bets():
             'lgName': ('eBasketball H2H GG League - 4x5 mins — on the app: Basketball > E-Basketball'
                        if nb in ('betmgm', 'borgata')
                        else 'FanDuel: Basketball > E-Basketball (eBasketball H2H GG)'),
-            'match': c.get('match'), 'ga': (c.get('match') or '').split(' v ')[0],
-            'gb': (c.get('match') or ' v ').split(' v ')[1] if ' v ' in (c.get('match') or '') else '',
+            'match': disp, 'ga': disp.split(' v ')[0],
+            'gb': disp.split(' v ')[1] if ' v ' in disp else '',
             'market': c.get('market'), 'side': c.get('side'),
             'price': c.get('price'), 'stake': kelly_stake if rec else 0,
             'start': start.isoformat(),
@@ -838,11 +850,18 @@ def board_bets():
                     ou = 'O' if mtot.group(1).lower() == 'over' else 'U'
                     card_line = float(mtot.group(2))
                     q = _b365_bb_quote(mtags, 'TOTAL', None, ou)
+            bev = _b365_bb_event(mtags)
+            if bev:
+                bnm = '%s v %s' % ((bev.get('home') or {}).get('name') or '',
+                                   (bev.get('away') or {}).get('name') or '')
+            else:
+                bnm = ''
+            bdisp = bnm if ' v ' in bnm else disp
             bets.append({
                 'key': c.get('key') + '|bet365', 'kind': 'nba', 'league': 'nba',
                 'lgName': 'bet365: Basketball — find the same game (odds may differ)',
-                'match': c.get('match'), 'ga': (c.get('match') or '').split(' v ')[0],
-                'gb': (c.get('match') or ' v ').split(' v ')[1] if ' v ' in (c.get('match') or '') else '',
+                'match': bdisp, 'ga': bdisp.split(' v ')[0],
+                'gb': bdisp.split(' v ')[1] if ' v ' in bdisp else '',
                 'market': c.get('market'), 'side': c.get('side'),
                 'price': (q['am'] if q else c.get('price')), 'stake': kelly_stake if rec else 0,
                 'start': start.isoformat(),
