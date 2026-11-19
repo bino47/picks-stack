@@ -1066,6 +1066,34 @@ def board_bets():
             pass
     # best EV first so the top of the card is the brain's strongest conviction
     bets.sort(key=lambda b: -float((b.get('note') or '').split('EV ')[-1].split('%')[0] or -99))
+    # Dedupe visually-identical rows: same book + market + side + start + tag
+    # pair = the SAME bet under two keys. The friend card posts one fixture
+    # as separate book-mirror rows (plain + __BORGATA) whose scored 'match'
+    # strings can differ (tag order), so the sig collapse above misses them
+    # and the board showed the same bet365 twin twice under two keys
+    # (2026-11-19). Keep the better price; tie keeps the higher-EV row.
+    def _amdec(p):
+        try:
+            p = float(p)
+            return 1 + (p / 100.0 if p > 0 else 100.0 / abs(p))
+        except (TypeError, ValueError):
+            return 0.0
+    _seen = {}
+    _out = []
+    for b in bets:
+        tags = tuple(sorted(filter(None, (_tag1(b.get('ga')), _tag1(b.get('gb'))))))
+        if not tags or len(tags) < 2:
+            tags = (str(b.get('ga') or '').upper(), str(b.get('gb') or '').upper())
+        sig = (str(b.get('book') or '').lower(), str(b.get('market') or '').upper(),
+               str(b.get('side') or '').upper(), str(b.get('start') or ''), tags)
+        if sig in _seen:
+            if _amdec(b.get('price')) > _amdec(_seen[sig].get('price')):
+                _out[_out.index(_seen[sig])] = b
+                _seen[sig] = b
+            continue
+        _seen[sig] = b
+        _out.append(b)
+    bets = _out
     return bets, partner
 
 
