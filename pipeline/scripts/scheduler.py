@@ -374,6 +374,26 @@ def _grade_fifa(o, games_by_date):
 _PS = {'at': 0.0, 'live': []}
 _PS_LOCK = threading.Lock()
 
+# bet365 NJ carries Esoccer H2H GG League + NBA2K (verified 2026-11-19 by
+# rendering the live NJ site). The Esoccer quick link opens this EXACT league
+# page, which lists games ~1h before kickoff — so a pre-match twin links HERE
+# and the game is actually visible (lobby links left the user hunting).
+# In-play: bet365 NJ shares the EV event ids with Pulse Score live slugs
+# (verified: an in-site click on a live esoccer game went to /#/IP/EV…C1/,
+# same ids the resolver serves), so live links are the slug on the NJ domain.
+# www.bet365.com from the US bounces to a state picker and LOSES the hash —
+# always link www.nj.bet365.com directly. iPhone universal links: the NJ AASA
+# (6DYF8FJV35.com.bet365.bet365NJ) covers /* , so iOS opens the app natively.
+# Android app is sideloaded (no Play package) — plain https links are correct.
+B365 = 'https://www.nj.bet365.com'
+B365_H2HGGL_LEAGUE = '/#/AC/B1/C1/D1002/E103371855/G40/N0/'
+B365_NBA2K = '/#/AC/B18/C1/D1002/G1453/J97/Q1/F%5E24/'
+# bet365 twins are FRESH-only: bet365 lists esoccer/NBA2K ~1h ahead, so a twin
+# for a game further out opens a page where the game isn't there yet
+# (user 2026-11-19: "if it's too far away game doesn't show").
+B365_TWIN_WINDOW = 3600
+
+
 def _bet365_live(ttl=90):
     """Pulse Score live bet365 soccer events, cached; [] on any failure."""
     key = (os.environ.get('PULSESCORE_KEY') or '').strip()
@@ -455,10 +475,14 @@ def _b365_upcoming():
         _BQ_LOCK.release()
     return _BQ['up']
 
-def _b365_odds(eid):
+def _b365_odds(eid, ttl=None):
+    """bet365 odds for one event. ttl: per-call override of the 10-min cache —
+    callers pass a SHORT ttl for games near kickoff so the twin's price is
+    fresh when the user is about to bet (volume is tiny: only the last ~15
+    minutes of an event's life refresh faster)."""
     now = time.time()
     c = _BQ['odds'].get(eid)
-    if c and now - c[0] < _BQ_TTL:
+    if c and now - c[0] < (ttl or _BQ_TTL):
         return c[1]
     try:
         r = _bapi('/v1/event/odds?event_id=%s' % eid).get('results') or {}
@@ -491,7 +515,13 @@ def _b365_esb_quote(o):
     eid = o.get('event_id')
     if not eid:
         return None
-    row = (_b365_odds(eid).get('1_1') or [{}])[0]
+    # near kickoff: refresh the quote at most every 2.5 min instead of 10
+    try:
+        mins_to_start = (int(o.get('time') or 0) - time.time()) / 60.0
+    except (TypeError, ValueError):
+        mins_to_start = -99
+    ttl = 150 if -15 <= mins_to_start <= 15 else None
+    row = (_b365_odds(eid, ttl).get('1_1') or [{}])[0]
     od = row.get('home_od') if (o.get('side') or '') == (o.get('home') or '') else row.get('away_od')
     am = _dec2am(od)
     return (am, _hm(row.get('add_time'))) if am is not None else None
@@ -518,7 +548,12 @@ def _b365_bb_quote(tags, market, side_tag, ou):
     ev = _b365_bb_event(tags)
     if not ev:
         return None
-    r = _b365_odds(ev['id'])
+    # near kickoff: refresh the quote at most every 2.5 min instead of 10
+    try:
+        mins_to_start = (int(ev.get('time') or 0) - time.time()) / 60.0
+    except (TypeError, ValueError):
+        mins_to_start = -99
+    r = _b365_odds(ev['id'], 150 if -15 <= mins_to_start <= 15 else None)
     mkt = (market or '').upper()
     stag = str(side_tag or '').upper()
     ht = _tag1((ev.get('home') or {}).get('name'))
@@ -596,21 +631,29 @@ def board_bets():
         # show games that haven't started yet, plus a ~9-min live grace so the
         # bet365 twin can still resolve the exact (in-play-only) esoccer game.
         # Stale picks past the grace expire, not display.
+        st_ts = 0
         try:
             st_ts = int(o.get('time') or 0)
             if st_ts and st_ts + 540 < time.time():
                 continue
         except Exception:
             pass
+        # bet365 twin is FRESH-only (see B365_TWIN_WINDOW): bet365 lists these
+        # games ~1h ahead; further out the game isn't on the site yet. The
+        # MGM/Borgata twins below are NOT gated — Entain lists further ahead.
+        b365_fresh = (not st_ts) or (st_ts - time.time() <= B365_TWIN_WINDOW)
         base = 'esb:%s:%s' % (o.get('event_id'), (o.get('side') or '').strip())
         if o.get('league') == 'h2hggl8':
             # bet365-only league ("Esoccer H2H GG League - 8 mins play"):
             # no MGM/Borgata twin row and no cds-api resolver (different
-            # provider). Single bet365 row, lobby link fallback + exact-game
-            # deep link once the game is LIVE (Pulse Score esoccer is
-            # in-play only — no pre-match slug).
+            # provider). Single bet365 row: pre-match opens bet365's OWN
+            # league page (games list there ~1h before kickoff); once live,
+            # the exact in-play game via the Pulse Score slug.
+            if not b365_fresh:
+                continue
             b365 = _bet365_slug(o.get('home'), o.get('away'))
             q = _b365_esb_quote(o)
+            tgt = (B365 + b365) if b365 else (B365 + B365_H2HGGL_LEAGUE)
             bets.append({
                 'key': base + '|bet365', 'kind': 'esb', 'league': o.get('league'),
                 'lgName': 'bet365: Soccer > Esports > Esoccer H2H GG League - 8 mins play',
@@ -623,39 +666,41 @@ def board_bets():
                          + ((' | bet365 now @ %s (quote %s UTC, card %s)'
                              % (q[0], q[1], o.get('price_am'))) if q
                             else ' | bet365: no live quote — verify odds before betting')
-                         + (' | bet365: opens the exact game — check the odds match before betting.'
+                         + (' | bet365: opens the exact live game — check the odds match before betting.'
                             if b365 else
-                            ' | bet365 only: open bet365 > Soccer > Esports > Esoccer H2H GG '
-                            'League - 8 mins play and check the odds match before betting.')),
+                            ' | bet365: opens bet365\'s Esoccer H2H GG League page — the game lists there '
+                            '(games post ~1h before kickoff; if it says betting closed, check back near kickoff).')),
                 'armed': True, 'book': 'bet365', 'line': '', 'legs': [],
-                'web': ('https://www.bet365.com' + b365) if b365 else 'https://www.bet365.com',
-                'app': ('https://www.bet365.com' + b365) if b365 else 'https://www.bet365.com'})
+                'web': tgt, 'app': tgt})
             continue
         # bet365 twin (user bettable there since 11-18): same pick at bet365's
         # odds (the BetsAPI feed prices these leagues off bet365). Exact-game
-        # deep link once LIVE (Pulse Score esoccer is in-play only); lobby
-        # fallback + manual match check before kickoff.
-        b365 = _bet365_slug(o.get('home'), o.get('away'))
-        q = _b365_esb_quote(o)
-        bets.append({
-            'key': base + '|bet365', 'kind': 'esb', 'league': o.get('league'),
-            'lgName': 'bet365: Soccer > Esports — find this league (e.g. Esoccer Battle - 8 mins play)',
-            'match': '%s v %s' % (o.get('home'), o.get('away')),
-            'ga': o.get('home'), 'gb': o.get('away'),
-            'market': o.get('market'), 'side': o.get('side'),
-            'price': (q[0] if q else o.get('price_am')), 'stake': o.get('stake'),
-            'start': _esb_iso(o.get('time')),
-            'note': ('model %.1f%% EV %+.1f%% | bet365: '
-                     % (100 * (o.get('model_p') or 0), 100 * _esb_note_ev(o, q))
-                     + (('now @ %s (quote %s UTC, card %s) — '
-                         % (q[0], q[1], o.get('price_am'))) if q
-                        else 'no live quote — verify odds. ')
-                     + ('opens the exact game — check the odds match before betting.'
-                        if b365 else
-                        'open bet365 > Soccer > Esports, find the same match, check the odds match before betting.')),
-            'armed': True, 'book': 'bet365', 'line': '', 'legs': [],
-            'web': ('https://www.bet365.com' + b365) if b365 else 'https://www.bet365.com',
-            'app': ('https://www.bet365.com' + b365) if b365 else 'https://www.bet365.com'})
+        # deep link once LIVE (Pulse Score esoccer is in-play only); before
+        # kickoff the bet365 NJ lobby + manual match check (no verified league
+        # page for the Battle/Volta comps yet). FRESH-only window applies.
+        if b365_fresh:
+            b365 = _bet365_slug(o.get('home'), o.get('away'))
+            q = _b365_esb_quote(o)
+            bets.append({
+                'key': base + '|bet365', 'kind': 'esb', 'league': o.get('league'),
+                'lgName': 'bet365: Soccer > Esports — find this league (e.g. Esoccer Battle - 8 mins play)',
+                'match': '%s v %s' % (o.get('home'), o.get('away')),
+                'ga': o.get('home'), 'gb': o.get('away'),
+                'market': o.get('market'), 'side': o.get('side'),
+                'price': (q[0] if q else o.get('price_am')), 'stake': o.get('stake'),
+                'start': _esb_iso(o.get('time')),
+                'note': ('model %.1f%% EV %+.1f%% | bet365: '
+                         % (100 * (o.get('model_p') or 0), 100 * _esb_note_ev(o, q))
+                         + (('now @ %s (quote %s UTC, card %s) — '
+                             % (q[0], q[1], o.get('price_am'))) if q
+                            else 'no live quote — verify odds. ')
+                         + ('opens the exact live game — check the odds match before betting.'
+                            if b365 else
+                            'open bet365 (NJ) > Soccer > Esports, find the same match, check the '
+                            'odds match before betting.')),
+                'armed': True, 'book': 'bet365', 'line': '', 'legs': [],
+                'web': (B365 + b365) if b365 else B365,
+                'app': (B365 + b365) if b365 else B365})
         note = ('model %.1f%% EV %+.1f%%' % (100 * (o.get('model_p') or 0), 100 * (o.get('ev') or 0))
             + ' | Same game at BOTH books - place at one, then tap Skip on the other row. ')
         # exact-game deep link: resolve once, ids are shared across both books
@@ -749,27 +794,36 @@ def board_bets():
                          % (100 * (o.get('p_model') or 0), 100 * (o.get('ev') or 0))),
                 'armed': True, 'book': book, 'line': '', 'legs': [],
                 'web': web, 'app': app})
-        # bet365 twin (bettable there since 11-18): no deep-link resolver, lobby
-        # link + manual match check. Price is a REAL bet365 quote (BetsAPI
-        # 18_1/18_2/18_3 on the tag-matched GG event) whenever bet365 posts
-        # prematch odds; otherwise the MGM clone with a verify flag.
-        q = _b365_bb_quote((o.get('tag_a'), o.get('tag_b')), o.get('market'),
-                           o.get('side_tag'), o.get('ou'))
-        bets.append({
-            'key': base + '|bet365', 'kind': 'nba', 'league': 'nba',
-            'lgName': 'bet365: Basketball > E-Basketball (eBasketball H2H GG League - 4x5 mins)',
-            'match': '%s v %s' % (o.get('home'), o.get('away')),
-            'ga': o.get('home'), 'gb': o.get('away'),
-            'market': mkt, 'side': o.get('side'),
-            'price': (q['am'] if q else o.get('price_am')), 'stake': o.get('stake'),
-            'start': o.get('start'),
-            'note': ('our ridge: model %.1f%% EV %+.1f%% vs the MGM line'
-                     % (100 * (o.get('p_model') or 0), 100 * _esb_note_ev(o, q))
-                     + _b365_twin_note(q, o.get('price_am'), o.get('line'),
-                                       ' | bet365: open Basketball > E-Basketball, '
-                                       'find the same match.')),
-            'armed': True, 'book': 'bet365', 'line': '', 'legs': [],
-            'web': 'https://www.bet365.com', 'app': 'https://www.bet365.com'})
+        # bet365 twin (bettable there since 11-18): opens bet365 NJ's NBA2K /
+        # eBasketball listing (verified quick-link URL, games post ~1h ahead),
+        # so the twin is FRESH-only like the esoccer twins. Price is a REAL
+        # bet365 quote (BetsAPI 18_1/18_2/18_3 on the tag-matched GG event)
+        # whenever bet365 posts prematch odds; otherwise the MGM clone with a
+        # verify flag.
+        try:
+            b365_fresh = (not int(o.get('start_ts') or 0)) or (
+                int(o.get('start_ts') or 0) - time.time() <= B365_TWIN_WINDOW)
+        except (TypeError, ValueError):
+            b365_fresh = True
+        if b365_fresh:
+            q = _b365_bb_quote((o.get('tag_a'), o.get('tag_b')), o.get('market'),
+                               o.get('side_tag'), o.get('ou'))
+            tgt = B365 + B365_NBA2K
+            bets.append({
+                'key': base + '|bet365', 'kind': 'nba', 'league': 'nba',
+                'lgName': 'bet365: Basketball > E-Basketball (eBasketball H2H GG League - 4x5 mins)',
+                'match': '%s v %s' % (o.get('home'), o.get('away')),
+                'ga': o.get('home'), 'gb': o.get('away'),
+                'market': mkt, 'side': o.get('side'),
+                'price': (q['am'] if q else o.get('price_am')), 'stake': o.get('stake'),
+                'start': o.get('start'),
+                'note': ('our ridge: model %.1f%% EV %+.1f%% vs the MGM line'
+                         % (100 * (o.get('p_model') or 0), 100 * _esb_note_ev(o, q))
+                         + _b365_twin_note(q, o.get('price_am'), o.get('line'),
+                                           ' | bet365: opens the NBA2K (eBasketball GG 4x5) '
+                                           'listing — find the same match.')),
+                'armed': True, 'book': 'bet365', 'line': '', 'legs': [],
+                'web': tgt, 'app': tgt})
     # NBA: mirror ALL upcoming singles from the user's own board, with the
     # observer's verdict attached (armed = in the profitable >=64% band).
     # (friend card fetched once here: FD nba rows join it by key for exact
@@ -921,9 +975,10 @@ def board_bets():
                 'note': 'observer: model %.1f%% EV %.1f%% -> BET (profitable band)'
                         % (float(c.get('model_win') or 0), _evpct)
                         + _b365_twin_note(q, c.get('price'), card_line,
-                                          ' | bet365: open Basketball, find the same match.'),
+                                          ' | bet365: opens the NBA2K (eBasketball GG 4x5) '
+                                          'listing — find the same match.'),
                 'armed': True, 'book': 'bet365',
-                'web': 'https://www.bet365.com', 'app': 'https://www.bet365.com',
+                'web': B365 + B365_NBA2K, 'app': B365 + B365_NBA2K,
                 'line': '', 'legs': []})
     # FIFA (esoccer) singles: observer-scored rows joined to the friend's live
     # card for the one-click FanDuel slip links, club names and tip time.
@@ -964,26 +1019,35 @@ def board_bets():
             'armed': True, 'book': 'fanduel', 'line': '', 'legs': [],
             'web': f.get('web') or '', 'app': f.get('app') or f.get('web') or ''})
         # bet365 twin (bettable there since 11-18): same pick, exact-game deep
-        # link once LIVE, lobby fallback before kickoff.
-        b365 = _bet365_slug(f.get('ga'), f.get('gb'))
-        bets.append({
-            'key': c.get('key') + '|bet365', 'kind': 'fifa', 'league': 'fifa',
-            'lgName': 'bet365: Soccer > Esports — find the same match (odds may differ)',
-            'match': '%s v %s' % (f.get('ga') or '?', f.get('gb') or '?'),
-            'ga': f.get('ga'), 'gb': f.get('gb'),
-            'fdName': f.get('fdName'),
-            'market': c.get('market'), 'side': c.get('side'),
-            'price': c.get('price'), 'stake': c.get('stake'),
-            'start': f.get('start'),
-            'note': ('observer: model %.1f%% EV %+.1f%% -> BET (profitable band) | bet365: '
-                     % (float(c.get('model_win') or 0), float(c.get('ev') or 0))
-                     + ('opens the exact game — check the odds match before betting.'
-                        if b365 else
-                        'open Soccer > Esports, find the same match, check the odds match '
-                        'before betting.')),
-            'armed': True, 'book': 'bet365', 'line': '', 'legs': [],
-            'web': ('https://www.bet365.com' + b365) if b365 else 'https://www.bet365.com',
-            'app': ('https://www.bet365.com' + b365) if b365 else 'https://www.bet365.com'})
+        # link once LIVE, bet365 NJ lobby before kickoff. FRESH-only window
+        # (bet365 lists esoccer ~1h ahead; further out the game isn't there).
+        fresh_b365 = True
+        try:
+            if (dt.datetime.fromisoformat(f['start'])
+                    - dt.datetime.now(dt.timezone.utc)).total_seconds() > B365_TWIN_WINDOW:
+                fresh_b365 = False
+        except Exception:
+            pass
+        if fresh_b365:
+            b365 = _bet365_slug(f.get('ga'), f.get('gb'))
+            tgt = (B365 + b365) if b365 else B365
+            bets.append({
+                'key': c.get('key') + '|bet365', 'kind': 'fifa', 'league': 'fifa',
+                'lgName': 'bet365: Soccer > Esports — find the same match (odds may differ)',
+                'match': '%s v %s' % (f.get('ga') or '?', f.get('gb') or '?'),
+                'ga': f.get('ga'), 'gb': f.get('gb'),
+                'fdName': f.get('fdName'),
+                'market': c.get('market'), 'side': c.get('side'),
+                'price': c.get('price'), 'stake': c.get('stake'),
+                'start': f.get('start'),
+                'note': ('observer: model %.1f%% EV %+.1f%% -> BET (profitable band) | bet365: '
+                         % (float(c.get('model_win') or 0), float(c.get('ev') or 0))
+                         + ('opens the exact live game — check the odds match before betting.'
+                            if b365 else
+                            'open Soccer > Esports, find the same match, check the odds '
+                            'match before betting.')),
+                'armed': True, 'book': 'bet365', 'line': '', 'legs': [],
+                'web': tgt, 'app': tgt})
         if c.get('key') not in seen_led:
             seen_led.add(c.get('key'))
             new_led.append(json.dumps({

@@ -27,6 +27,9 @@ h1{font-size:19px;line-height:1.2;margin:0;font-weight:750;letter-spacing:-.01em
 .bankbox{margin:8px 0 0;text-align:right}.bankbox label{display:flex;align-items:center;justify-content:flex-end;gap:6px;font-size:12px;color:var(--muted)}
 .bankbox input{width:90px;padding:4px 6px;border:1px solid var(--line,#d8d4c8);border-radius:6px;background:var(--card,#fff);color:inherit;font:600 13px ui-monospace,Menlo,Consolas,monospace;text-align:right}
 .bankbox .subb{display:block;font-size:11px;color:var(--muted);margin-top:3px;min-height:14px}
+.bankbox.off{display:none}
+#banktog{margin-top:8px;font-size:11.5px;font-weight:700;color:var(--muted);background:none;border:1px solid var(--line);border-radius:8px;padding:4px 10px;cursor:pointer}
+#banktog:hover{color:inherit}
 .amt .real{color:var(--muted);font-size:11px;font-weight:400;margin-left:3px}
 .boost{display:flex;align-items:center;justify-content:flex-end;gap:7px;margin-top:6px;font-size:12px;color:var(--muted);cursor:pointer;user-select:none}
 .boost input{width:auto;accent-color:var(--ok)}
@@ -149,6 +152,7 @@ font-weight:600;box-shadow:0 4px 18px rgba(0,0,0,.25);display:none}
  <div class="hd"><div><h1 id="who">FanDuel board</h1><div class="sub" id="sub">eBasketball H2H &middot; FanDuel</div></div>
  <div class="bank"><b id="bank">&nbsp;</b><span id="cap">&nbsp;</span><span id="livebk">&nbsp;</span>
   <span id="livepnl" class="livepnl" title="Live P&amp;L on your placed bets, from real results">&nbsp;</span></div>
+  <button id="banktog" type="button" aria-expanded="true">Bankroll <span id="bankcar">&#9662;</span></button>
   <div class="bankbox"><label>FanDuel bankroll ($)<input id="fdbank" inputmode="decimal" autocomplete="off" placeholder="enter to scale"></label>
   <label>BetMGM bankroll ($)<input id="mgmbank" inputmode="decimal" autocomplete="off" placeholder="enter to scale"></label>
   <label>Borgata bankroll ($)<input id="bgabank" inputmode="decimal" autocomplete="off" placeholder="enter to scale"></label>
@@ -182,6 +186,25 @@ try { MYBANK_FD = localStorage.getItem("pb-fdbank"); } catch (e) {}
 try { MYBANK_MGM = localStorage.getItem("pb-mgmbank"); } catch (e) {}
 try { MYBANK_BGA = localStorage.getItem("pb-bgabank"); } catch (e) {}
 try { MYBANK_B365 = localStorage.getItem("pb-b365bank"); } catch (e) {}
+// collapsible bankroll box (phone-friendly): collapsed by default on small
+// screens; a manual toggle is remembered across visits.
+(function(){
+  var box = document.querySelector(".bankbox"), tog = document.getElementById("banktog");
+  if (!box || !tog) return;
+  var pref = null; try { pref = localStorage.getItem("pb-bankbox"); } catch (e) {}
+  var off = pref !== null ? pref === "1" : window.innerWidth < 720;
+  function apply(){
+    box.classList.toggle("off", off);
+    tog.setAttribute("aria-expanded", off ? "false" : "true");
+    var c = document.getElementById("bankcar"); if (c) c.textContent = off ? "\u25B8" : "\u25BE";
+  }
+  tog.addEventListener("click", function(){
+    off = !off;
+    try { localStorage.setItem("pb-bankbox", off ? "1" : "0"); } catch (e) {}
+    apply();
+  });
+  apply();
+})();
 try { BOOST15 = localStorage.getItem("pb-boost15") === "1"; } catch (e) {}
 // Scale every displayed stake so the bet keeps the same EV *proportion* of the
 // bankroll. Source bankroll -> your bankroll; a $160 bet on a $7000 bankroll
@@ -499,7 +522,7 @@ function renderB365(){
   var bf = scaleFactor({book: "bet365"});
   var lab = bval ? "bet365 bankroll: " + bval + (bf !== 1 ? " (\u00d7" + (Math.round(bf * 100) / 100) + ")" : "") : "Set bet365 bankroll";
   var h = "<div class=\"all\"><button class=\"btn sm b365\" data-act=\"b365bank\">" + esc(lab) + "</button><span>tap to set &mdash; bet365 stakes scale to it</span></div>"
-    + "<p class=\"note\"><b>bet365 bets.</b> The same picks as To place, posted at bet365 (you&rsquo;re not limited there). The link opens bet365 &mdash; find the <b>same match</b>, check the <b>odds on the slip</b> match the card, place it, then tap <b>I placed it</b>. Stakes scale with the <b>bet365 bankroll</b> box at the top of the page.</p>";
+    + "<p class=\"note\"><b>bet365 bets.</b> The same picks as To place, posted at bet365 (you&rsquo;re not limited there). The link opens bet365 NJ &mdash; the game&rsquo;s league listing (games post ~1h before kickoff) or the exact live game. Find the <b>same match</b>, check the <b>odds on the slip</b> match the card, place it, then tap <b>I placed it</b>. Stakes scale with the <b>bet365 bankroll</b> box at the top of the page.</p>";
   h += picks.length ? picks.map(betCard).join("")
     : "<div class=\"empty\"><b>No bet365 picks right now</b>Every open pick also posts a bet365 twin here while it&rsquo;s bettable.</div>";
   if (watch.length) h += "<details class=\"watch\"><summary>Also tracking " + watch.length + " more (not recommended)</summary><p class=\"note\">Below the profitable band &mdash; don&rsquo;t bet these.</p>" + watch.map(betCard).join("") + "</details>";
