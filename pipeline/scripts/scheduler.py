@@ -593,8 +593,10 @@ def _b365_bb_quote(tags, market, side_tag, ou):
 def _b365_twin_note(q, card_price, card_line, howto):
     """Note fragment for a bet365 twin: live quote + moved-line/price flags."""
     if not q:
-        return (' | bet365: no live prematch odds (feed has none yet) — the price '
-                'shown is the source book\'s, verify bet365\'s line before betting.'
+        return (' | bet365: not listed yet — it lists eBasketball only ~30 min '
+                'before kickoff (about 5 games ahead). Check back closer to start; '
+                'the price shown is the source book\'s. If it never appears by '
+                'kickoff, bet365 pulled the game.'
                 + howto)
     frag = " | bet365 now %s @ %s (quote %s UTC)" % (q['desc'], q['am'], q['at'])
     try:
