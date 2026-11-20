@@ -92,6 +92,7 @@ font-weight:700;font-size:14px;text-decoration:none;cursor:pointer;flex:1}
 .bk.fb{background:#2f6b3a;color:#fff}
 .bk.b365{background:#14841d;color:#fff}
 .bk.sc{background:#5b3f9c;color:#fff}
+.bk.tt{background:#9a4a14;color:#fff}
 .btn.ok{background:var(--ok);border-color:var(--ok);color:#fff}
 .btn.ghost{color:var(--muted)}.btn[disabled]{opacity:.45;pointer-events:none}
 .btn.sm{min-height:32px;font-size:12.5px;padding:0 10px;flex:none}
@@ -163,12 +164,14 @@ font-weight:600;box-shadow:0 4px 18px rgba(0,0,0,.25);display:none}
  <div id="sel" class="sel" hidden></div>
  <nav><button data-tab="bets" class="on">To place<span class="n" id="nb">0</span></button>
  <button data-tab="b365">bet365<span class="n" id="n365">0</span></button>
+ <button data-tab="tt">Table tennis<span class="n" id="ntt">0</span></button>
  <button data-tab="placed">Placed<span class="n" id="np">0</span></button>
  <button data-tab="sims">Sims</button>
  <button data-tab="record">Record</button></nav>
 </header>
 <section id="v-bets"></section>
 <section id="v-b365" hidden></section>
+<section id="v-tt" hidden></section>
 <section id="v-placed" hidden></section>
 <section id="v-sims" hidden></section>
 <section id="v-record" hidden></section>
@@ -363,10 +366,10 @@ function betCard(b){
   var book = b.book, mg = book === "betmgm", bga = book === "borgata", b365 = book === "bet365";
   var bk = mg ? "BetMGM" : (bga ? "Borgata" : (b365 ? "bet365" : "FanDuel"));
   var bcls = mg ? "mg" : (bga ? "bga" : (b365 ? "b365" : "fd"));
-  var nfl = b.league === "nfl", soc = b.league === "fifa", own = nfl || soc;
-  var tag = (nfl ? "<span class=\"bk fb\">Football</span>" : "") + (soc ? "<span class=\"bk sc\">Soccer</span>" : "") + (DATA.split ? "<span class=\"bk " + (bcls === "fd" ? "" : bcls) + "\">" + bk + "</span>" : "");
-  var go = nfl ? "starts" : (soc ? "kicks off" : "tips");
-  var when = st <= 0 ? "<span class=\"soon\">" + (nfl ? "starting" : (soc ? "kicking off" : "tipping")) + " now</span>" : (st <= 5 ? "<span class=\"soon\">" + go + " in " + st + " min</span>" : go + " in " + st + " min");
+  var nfl = b.league === "nfl", soc = b.league === "fifa", ttn = b.league === "tt", own = nfl || soc || ttn;
+  var tag = (nfl ? "<span class=\"bk fb\">Football</span>" : "") + (soc ? "<span class=\"bk sc\">Soccer</span>" : "") + (ttn ? "<span class=\"bk tt\">Table tennis</span>" : "") + (DATA.split ? "<span class=\"bk " + (bcls === "fd" ? "" : bcls) + "\">" + bk + "</span>" : "");
+  var go = (nfl || ttn) ? "starts" : (soc ? "kicks off" : "tips");
+  var when = st <= 0 ? "<span class=\"soon\">" + ((nfl || ttn) ? "starting" : (soc ? "kicking off" : "tipping")) + " now</span>" : (st <= 5 ? "<span class=\"soon\">" + go + " in " + st + " min</span>" : go + " in " + st + " min");
   var on = b.armed && (own || DATA.live);   // DATA.live is the basketball board's health
   var h = "<article class=\"card" + (on ? "" : " off") + "\">"
     + "<div class=\"when\"><span><b>" + esc(tm(b.start)) + "</b> &middot; " + when + "</span><span>" + esc(b.market) + tag + "</span></div>"
@@ -406,15 +409,15 @@ function parlayCard(b){
   var mg = b.book === "betmgm", bga = b.book === "borgata", b365 = b.book === "bet365";
   var bk = mg ? "BetMGM" : (bga ? "Borgata" : (b365 ? "bet365" : "FanDuel"));
   var bcls = mg ? "mg" : (bga ? "bga" : (b365 ? "b365" : "fd"));
-  var soc = b.league === "fifa";
-  var tag = (soc ? "<span class=\"bk sc\">Soccer</span>" : "") + (DATA.split ? "<span class=\"bk " + (bcls === "fd" ? "" : bcls) + "\">" + bk + "</span>" : "");
+  var soc = b.league === "fifa", ttn = b.league === "tt";
+  var tag = (soc ? "<span class=\"bk sc\">Soccer</span>" : "") + (ttn ? "<span class=\"bk tt\">Table tennis</span>" : "") + (DATA.split ? "<span class=\"bk " + (bcls === "fd" ? "" : bcls) + "\">" + bk + "</span>" : "");
   var when = st <= 0 ? "<span class=\"soon\">closing now</span>" : (st <= 5 ? "<span class=\"soon\">closes in " + st + " min</span>" : "closes in " + st + " min");
-  var on = b.armed && (soc || DATA.live);   // DATA.live is the basketball board's health
+  var on = b.armed && (soc || ttn || DATA.live);   // DATA.live is the basketball board's health
   var h = "<article class=\"card" + (on ? "" : " off") + "\">"
     + "<div class=\"when\"><span><b>" + esc(tm(b.start)) + "</b> &middot; " + when + "</span><span>" + n + "-leg parlay" + tag + "</span></div>"
     + "<div class=\"legs\">" + legs.map(function(l){
         return "<div class=\"leg\"><div class=\"lt\"><b>" + esc(l.side) + "</b><span class=\"px\">" + esc(am(l.price)) + "</span></div>"
-          + "<div class=\"fdn\">" + esc(l.ga) + " v " + esc(l.gb) + " &middot; " + esc(l.market) + " &middot; " + (soc ? "kicks off " : "tips ") + esc(tm(l.start)) + "</div></div>"; }).join("") + "</div>"
+          + "<div class=\"fdn\">" + esc(l.ga) + " v " + esc(l.gb) + " &middot; " + esc(l.market) + " &middot; " + (soc ? "kicks off " : (ttn ? "starts " : "tips ")) + esc(tm(l.start)) + "</div></div>"; }).join("") + "</div>"
     + "<div class=\"pick\"><span class=\"sd\">Parlay, one ticket</span><span class=\"px\">" + esc(am(b.price)) + "</span><span class=\"amt\">" + stakeDisplay(b) + "</span></div>";
   if (!on) h += "<div class=\"why\">Not placeable right now: " + esc(b.why || DATA.why || "board not live") + "</div>";
   h += "<div class=\"hint\">The button loads all " + n + " legs. In the " + bk + " slip put <b>" + esc(usd(stake(b))) + " on the Parlay line</b> (not on the straight bets), check every leg is there, and check the parlay odds are about <b>" + esc(am(b.price)) + "</b>.</div>"
@@ -479,7 +482,7 @@ function bookChips(counts, total){
 function renderBets(){
   var d = DATA, mine = d.mine || {};
   // bet365 rows live on their own tab (renderB365) — keep them off To-place.
-  var todo = (d.bets || []).filter(function(b){ return !mine[b.key] && b.book !== "bet365"; });
+  var todo = (d.bets || []).filter(function(b){ return !mine[b.key] && b.book !== "bet365" && b.league !== "tt"; });
   var singles = todo.filter(function(b){ return b.kind !== "parlay"; });
   var tickets = todo.filter(function(b){ return b.kind === "parlay"; });
   var picks = singles.filter(function(b){ return b.armed; });
@@ -529,12 +532,25 @@ function renderB365(){
   $("v-b365").innerHTML = h;
 }
 
+function renderTT(){
+  var d = DATA, mine = d.mine || {};
+  var todo = (d.bets || []).filter(function(b){ return b.league === "tt" && !mine[b.key]; });
+  var singles = todo.filter(function(b){ return b.kind !== "parlay"; });
+  var tickets = todo.filter(function(b){ return b.kind === "parlay"; });
+  $("ntt").textContent = singles.length + tickets.length;
+  var h = "<p class=\"note\"><b>Table tennis &mdash; TT Elite Series (Poland), FanDuel only.</b> The source board&rsquo;s own picks, mirrored in full with his one-click slip links. The button loads the exact selection &mdash; check the odds on the slip match the card before betting. Results settle from the source board&rsquo;s own record.</p>";
+  h += singles.length ? singles.map(betCard).join("")
+    : "<div class=\"empty\"><b>No table tennis picks right now</b>TT matches run every few minutes; new picks appear here shortly before they start.</div>";
+  if (tickets.length) h += "<h2>Parlays &middot; " + tickets.length + "</h2><p class=\"note\">TT parlays are the source&rsquo;s own tickets &mdash; place each one on the Parlay line, not as straights.</p>" + tickets.map(parlayCard).join("");
+  $("v-tt").innerHTML = h;
+}
+
 function placedItem(k, r){
   var res = r.status === "skipped" ? "<span class=\"res\">skipped</span>"
     : (r.result ? "<span class=\"res " + esc(r.result) + "\">" + esc(r.result === "win" ? "won" : r.result === "loss" ? "lost" : r.result) + "</span>" : "<span class=\"res\">pending</span>");
   var pnl = r.status === "placed" && r.pnl != null ? "<div class=\"pnl " + (r.pnl > 0 ? "pos" : r.pnl < 0 ? "neg" : "") + "\">" + esc(signed(r.pnl)) + "</div>" : "";
   var undo = r.locked ? "" : "<button class=\"btn sm ghost\" data-act=\"undo\" data-k=\"" + esc(k) + "\">Undo</button>";
-  return "<div class=\"item\"><div class=\"l\"><div class=\"t\">" + esc(r.pick || "") + (r.league === "nfl" ? " <span class=\"bk fb\">Football</span>" : "") + (r.league === "fifa" ? " <span class=\"bk sc\">Soccer</span>" : "") + (r.book === "betmgm" ? " <span class=\"bk mg\">BetMGM</span>" : "") + (r.book === "borgata" ? " <span class=\"bk bga\">Borgata</span>" : "") + (r.book === "bet365" ? " <span class=\"bk b365\">bet365</span>" : "") + (r.status === "placed" ? " &middot; " + esc(am(r.price)) + " &middot; " + esc(usd(r.stake, true)) : "") + (r.limited ? " <span class=\"bk\">Limited</span>" : "") + "</div>"
+  return "<div class=\"item\"><div class=\"l\"><div class=\"t\">" + esc(r.pick || "") + (r.league === "nfl" ? " <span class=\"bk fb\">Football</span>" : "") + (r.league === "fifa" ? " <span class=\"bk sc\">Soccer</span>" : "") + (r.league === "tt" ? " <span class=\"bk tt\">Table tennis</span>" : "") + (r.book === "betmgm" ? " <span class=\"bk mg\">BetMGM</span>" : "") + (r.book === "borgata" ? " <span class=\"bk bga\">Borgata</span>" : "") + (r.book === "bet365" ? " <span class=\"bk b365\">bet365</span>" : "") + (r.status === "placed" ? " &middot; " + esc(am(r.price)) + " &middot; " + esc(usd(r.stake, true)) : "") + (r.limited ? " <span class=\"bk\">Limited</span>" : "") + "</div>"
     + "<div class=\"s\">" + (r.kind === "parlay" ? esc(r.match || "") + " &middot; first leg " + esc(tm(r.start))
         : esc(r.match || "") + " &middot; " + esc(r.market || "") + " &middot; tip " + esc(tm(r.start)) + (r.score ? " &middot; final " + esc(r.score) : "")) + "</div></div>"
     + "<div class=\"r\">" + res + pnl + (undo ? "<div style=\"margin-top:6px\">" + undo + "</div>" : "") + "</div></div>";
@@ -558,7 +574,7 @@ function renderRecord(){
   var S = REC.summary;
   var h = "<div class=\"stats\">" + stat("Today", S.today.placed) + stat("7 days", S.week.placed) + stat("All time", S.all.placed) + "</div>";
   var BL = S.all.byLeague || {};
-  var LGL = {nba:"Basketball", nfl:"Football", fifa:"Soccer",
+  var LGL = {nba:"Basketball", nfl:"Football", fifa:"Soccer", tt:"Table tennis",
             battle8:"Virtual Soccer (Battle 2x4)", volta6:"Virtual Soccer (Volta 2x3)", h2hggl8:"Esoccer H2H GG (bet365)"};
   if (Object.keys(BL).length) h += "<div class=\"stats\">" + Object.keys(BL).map(function(k){
       return stat((LGL[k] || k) + ", all time", BL[k].placed); }).join("") + "</div>";
@@ -672,8 +688,9 @@ function render(){
   if (TAB === "record") renderRecord();
   if (TAB === "sims") renderSims();
   if (TAB === "b365") renderB365();
+  if (TAB === "tt") renderTT();
   [].forEach.call(document.querySelectorAll("nav button"), function(b){ b.classList.toggle("on", b.getAttribute("data-tab") === TAB); });
-  ["bets", "b365", "placed", "sims", "record"].forEach(function(t){ $("v-" + t).hidden = (t !== TAB); });
+  ["bets", "b365", "tt", "placed", "sims", "record"].forEach(function(t){ $("v-" + t).hidden = (t !== TAB); });
 }
 
 function lockOut(msg){

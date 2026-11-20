@@ -832,6 +832,13 @@ def board_bets():
     # slip links, and the fifa section below reuses the same lookup)
     friend = _friend_card() or {}
     fby = {b.get('key'): b for b in (friend.get('bets') or [])}
+    # the friend's partner profile carries his table-tennis bankroll ($1k);
+    # display only — the stake scaler keeps its existing pot basis untouched.
+    try:
+        partner['ttBankroll'] = round(float(
+            (friend.get('partner') or {}).get('ttBankroll') or 0), 2)
+    except Exception:
+        partner['ttBankroll'] = 0
     try:
         card = json.load(open(os.path.join(HIST, 'history', 'scored_card.json')))
     except Exception:
@@ -1064,8 +1071,56 @@ def board_bets():
                 fh.write('\n'.join(new_led) + '\n')
         except Exception:
             pass
-    # best EV first so the top of the card is the brain's strongest conviction
-    bets.sort(key=lambda b: -float((b.get('note') or '').split('EV ')[-1].split('%')[0] or -99))
+    # TABLE TENNIS (TT Elite Series, Poland — FanDuel only): mirror ALL live
+    # rows from the friend's card, singles AND parlays, with his one-click FD
+    # slip links. Settles off HIS board: graded_rows() emits his settled
+    # `mine` results for the same keys (pnl recomputed board-side from the
+    # user's own stake/price). A pick he never places has no result source —
+    # it ages out open (known gap, 2026-11-20).
+    tt_scored = {c.get('key'): c for c in card.get('card', [])
+                 if c.get('league') == 'tt'}
+    for f in (friend.get('bets') or []):
+        if (f.get('league') or '') != 'tt':
+            continue
+        try:
+            fst = dt.datetime.fromisoformat((f.get('start') or '').replace('Z', '+00:00'))
+        except Exception:
+            continue
+        if fst < dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=9):
+            continue  # kicked off + grace elapsed
+        is_parlay = (f.get('kind') == 'parlay')
+        s = None if is_parlay else tt_scored.get(f.get('key'))
+        if s:
+            note = ('observer: model %.1f%% EV %+.1f%% — NBA-trained extrapolation, '
+                    'NOT TT-calibrated | FanDuel: the button loads the exact selection - '
+                    'check the odds on the slip match before betting.'
+                    % (float(s.get('model_win') or 0), float(s.get('ev') or 0)))
+        else:
+            note = ('FanDuel: the button loads the exact selection(s) - check the odds '
+                    'on the slip match the card before betting.')
+        bets.append({
+            'key': f.get('key'),
+            'kind': 'parlay' if is_parlay else 'tt', 'league': 'tt',
+            'lgName': 'FanDuel: Table Tennis — TT Elite Series (Poland)',
+            'match': (f.get('fdName')
+                      or ('%s v %s' % (f.get('ga') or '?', f.get('gb') or '?'))),
+            'ga': f.get('ga') or '', 'gb': f.get('gb') or '',
+            'market': f.get('market'), 'side': f.get('side'),
+            'price': f.get('price'), 'stake': f.get('stake'),
+            'start': f.get('start'), 'note': note,
+            'armed': bool(f.get('armed', True)), 'book': 'fanduel',
+            'line': (f.get('line') if f.get('line') is not None else ''),
+            'legs': f.get('legs') or [],
+            'web': f.get('web') or '', 'app': f.get('app') or f.get('web') or ''})
+    # best EV first so the top of the card is the brain's strongest conviction.
+    # Notes without a parseable 'EV x%' (e.g. TT rows the observer never
+    # scored) previously crashed this float(); park them at the bottom.
+    def _evkey(b):
+        try:
+            return -float((b.get('note') or '').split('EV ')[-1].split('%')[0] or -99)
+        except ValueError:
+            return 99.0
+    bets.sort(key=_evkey)
     # Dedupe visually-identical rows: same book + market + side + start + tag
     # pair = the SAME bet under two keys. The friend card posts one fixture
     # as separate book-mirror rows (plain + __BORGATA) whose scored 'match'
@@ -1345,6 +1400,17 @@ def graded_rows():
             out.append({'key': o.get('key'), 'result': res, 'pnl': None})
             # plus the bet365 twin of the same pick
             out.append({'key': o.get('key') + '|bet365', 'result': res, 'pnl': None})
+    # TABLE TENNIS: settles off the friend's own board — his `mine` rows
+    # carry his settled results for the same TT_* keys (win/loss on his
+    # ledger). pnl stays None so the board recomputes from the user's own
+    # stake/price. Picks he never places carry no result (known gap).
+    friend = _friend_card() or {}
+    for k, v in (friend.get('mine') or {}).items():
+        if str(v.get('league') or '').lower() != 'tt':
+            continue
+        res = str(v.get('result') or '').lower()
+        if res in ('win', 'loss', 'push'):
+            out.append({'key': k, 'result': res, 'pnl': None})
     # manual/backfill grades (seeded from the repo; survives /var/data wipes).
     # Orphaned board placements whose pipeline ledger row was wiped by a
     # deploy settle from here — pnl stays None so the board recomputes it
