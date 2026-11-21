@@ -645,9 +645,10 @@ function simsByBook(list){
 var ESLG = {battle8:"Virtual Soccer (Battle 2x4, 8 mins)", volta6:"Virtual Soccer (Volta 2x3, 6 mins)", h2hggl8:"Esoccer H2H GG 8 mins (bet365)"};
 
 function renderSims(){
-  var esb=jsonl(DATA.esb_ledger);
-  var h="<p class=\"note\"><b>Sim-market picks &mdash; esoccer (bettable).</b> The model&rsquo;s esoccer sim picks priced at the real books (BetMGM/Borgata links on each row), staked by quarter-Kelly, graded on real results. Use the App/Browser buttons to place one, then record it from the same game&rsquo;s row on the To-place tab.</p>";
-  h+="<div class=\"stats\">"+simsStat(esb,"Esoccer sims")+"</div>";
+  var esb=jsonl(DATA.esb_ledger), msb=jsonl(DATA.model_sb_ledger);
+  var h="<p class=\"note\"><b>Sim-market picks &mdash; esoccer + 2K NBA totals (bettable).</b> The model&rsquo;s sim picks priced at the real books (BetMGM/Borgata links where the book carries the game), staked by quarter-Kelly, graded on real results. Use the App/Browser buttons to place one, then record it from the same game&rsquo;s row on the To-place tab.</p>";
+  h+="<div class=\"stats\">"+simsStat(esb,"Esoccer sims")
+    +simsStat(msb.map(function(r){return {status:(String(r.status||"").toLowerCase()==="settled"?(r.result||r.status):r.status), stake:r.stake, pnl:r.pnl};}),"2K NBA totals")+"</div>";
   var open=[].concat(
     esb.filter(function(r){return (r.status||"").toLowerCase()==="open";}).map(function(r){
       return {t:r.bookName||((r.home||"")+" v "+(r.away||"")), p:r.sideBook||r.side, am:r.price_am, dec:r.price_dec, pw:Math.round(100*(r.model_p||0)), ev:r.ev, st:r.stake, when:r.time?Number(r.time)*1000:null, lg:r.bookLg||(ESLG[r.league]||r.league), src:"esoccer", lk:r.links||{}};
@@ -661,7 +662,7 @@ function renderSims(){
   });
   var counts={}, total=slips.length;
   slips.forEach(function(s){ counts[s.book]=(counts[s.book]||0)+1; });
-  h+="<h2>Open sims &middot; "+open.length+"</h2>";
+  h+="<h2>Open esoccer sims &middot; "+open.length+"</h2>";
   if(total){
     if(BOOKF!=="all"&&!counts[BOOKF]) BOOKF="all"; // book ran dry -> fall back
     var shown=BOOKF==="all"?slips:slips.filter(function(s){return s.book===BOOKF;});
@@ -669,6 +670,23 @@ function renderSims(){
       +(BOOKF==="all"?simsByBook(shown):"<div class=\"card\">"+shown.map(simSlip).join("")+"</div>");
   } else h+="<div class=\"card\"><div class=\"empty\"><b>No open sims right now</b>New simulated picks appear here about 10&ndash;60 minutes before tip.</div></div>";
   if(nolink.length) h+="<details class=\"watch\"><summary>Paper only &middot; "+nolink.length+" not carried at the books</summary><div class=\"card\">"+nolink.map(paperRow).join("")+"</div></details>";
+  // --- 2K NBA totals model picks (open) ---
+  var open2k=msb.filter(function(r){return (r.status||"").toLowerCase()==="open";}).map(function(r){
+    var bk="FanDuel"; if(/BORGATA/.test(r.key||"")) bk="Borgata"; else if(/BETMGM/.test(r.key||"")) bk="BetMGM";
+    return {t:r.bookName||r.match||"", p:r.sideBook||r.pick, am:r.book_price, pw:Math.round(r.model_win||0), ev:(r.ev!=null?r.ev/100:null), st:r.stake, when:r.start?Date.parse(r.start):null, lg:r.bookLg||bk, src:"2K", lk:r.links||{}};
+  }).sort(function(a,b){return (a.when||0)-(b.when||0);});
+  h+="<h2>Open 2K totals sims &middot; "+open2k.length+"</h2>";
+  if(open2k.length){
+    h+="<div class=\"card\">"+open2k.map(function(x){
+      var btns="";
+      ["betmgm","borgata"].forEach(function(b){ var L=(x.lk||{})[b]; if(L&&L.web){
+        btns+="<a class=\"btn sm"+(b==="betmgm"?" mg":" bga")+"\" href=\""+esc(L.web)+"\" target=\"_blank\" rel=\"noopener\">"+(b==="betmgm"?"MGM":"Borgata")+"</a>";
+        if(L.app) btns+="<a class=\"btn sm"+(b==="betmgm"?" mg":" bga")+"\" href=\""+esc(appHref({book:b,app:L.app}))+"\" target=\"_blank\" rel=\"noopener\">App</a>";
+      } });
+      return "<div class=\"item\">"+simLeft(x)+(btns?"<div class=\"r slbtns\">"+btns+"</div>":"")+"</div>";
+    }).join("")+"</div>";
+  } else h+="<div class=\"card\"><div class=\"empty\"><b>No open 2K totals right now</b>The totals model fires here ~5&ndash;60 minutes before tip.</div></div>";
+
   var done=esb.filter(function(r){return ["win","loss","push"].indexOf(String(r.status||"").toLowerCase())>=0;});
   if(done.length){
     done.sort(function(a,b){return String(b.placed||b.created||"").localeCompare(String(a.placed||a.created||""));});
@@ -676,6 +694,16 @@ function renderSims(){
       var st=String(r.status||r.result||"").toLowerCase(), res=st==="win"?"won":st==="loss"?"lost":st;
       return "<div class=\"item\"><div class=\"l\"><div class=\"t\">"+esc(r.side||r.pick||"")+" <span class=\"bk\">esoccer</span> <span class=\"res "+esc(st)+"\">"+esc(res)+"</span></div>"
         +"<div class=\"s\">"+esc((r.home||"")+" v "+(r.away||""))+" &middot; "+esc(ESLG[r.league]||r.league||"")+" &middot; "+esc(r.market||"")+" &middot; "+esc(am(r.price_am))+" &middot; model "+Math.round(100*(r.model_p||((r.model_win||0)/100)))+"%</div></div>"
+        +"<div class=\"r\">"+(r.pnl!=null?"<div class=\"pnl "+(r.pnl>0?"pos":r.pnl<0?"neg":"")+"\">"+esc(signed(r.pnl))+"</div>":"")+"</div></div>";
+    }).join("")+"</div></details>";
+  }
+  var done2k=msb.filter(function(r){return (r.status||"").toLowerCase()==="settled"&&["win","loss"].indexOf(String(r.result||"").toLowerCase())>=0;});
+  if(done2k.length){
+    done2k.sort(function(a,b){return String(b.settled||b.created||"").localeCompare(String(a.settled||a.created||""));});
+    h+="<details class=\"watch\"><summary>Graded 2K totals &middot; "+done2k.length+"</summary><div class=\"card\">"+done2k.slice(0,120).map(function(r){
+      var st=String(r.result||"").toLowerCase(), res=st==="win"?"won":"lost";
+      return "<div class=\"item\"><div class=\"l\"><div class=\"t\">"+esc(r.pick||"")+" <span class=\"bk\">2K</span> <span class=\"res "+esc(st)+"\">"+esc(res)+"</span></div>"
+        +"<div class=\"s\">"+esc(r.match||"")+" &middot; "+esc(r.market||"Total")+" &middot; "+esc(am(r.book_price))+" &middot; model "+Math.round(r.model_win||0)+"%</div></div>"
         +"<div class=\"r\">"+(r.pnl!=null?"<div class=\"pnl "+(r.pnl>0?"pos":r.pnl<0?"neg":"")+"\">"+esc(signed(r.pnl))+"</div>":"")+"</div></div>";
     }).join("")+"</div></details>";
   }
