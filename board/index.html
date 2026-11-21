@@ -84,6 +84,7 @@ border-radius:9px;border:1px solid var(--line);background:var(--card);color:var(
 font-weight:700;font-size:14px;text-decoration:none;cursor:pointer;flex:1}
 .btn.fd{background:var(--fd);border-color:var(--fd);color:var(--fdink)}
 .btn.b365{background:#14841d;border-color:#14841d;color:#fff}
+.btn.dk{background:#0e7a4e;border-color:#0e7a4e;color:#fff}
 .btn.mg{background:#b08d3c;border-color:#b08d3c;color:#fff}
 .btn.bga{background:#7a1f8f;border-color:#7a1f8f;color:#fff}
 .bk{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;padding:1px 7px;border-radius:9px;margin-left:6px;background:var(--chip);color:var(--ink)}
@@ -91,6 +92,7 @@ font-weight:700;font-size:14px;text-decoration:none;cursor:pointer;flex:1}
 .bk.bga{background:#7a1f8f;color:#fff}
 .bk.fb{background:#2f6b3a;color:#fff}
 .bk.b365{background:#14841d;color:#fff}
+.bk.dk{background:#0e7a4e;color:#fff}
 .bk.sc{background:#5b3f9c;color:#fff}
 .bk.tt{background:#9a4a14;color:#fff}
 .btn.ok{background:var(--ok);border-color:var(--ok);color:#fff}
@@ -363,9 +365,9 @@ function appHref(b){
 
 function betCard(b){
   var k = esc(b.key), st = mins(b.start), ed = EDIT[b.key] || {};
-  var book = b.book, mg = book === "betmgm", bga = book === "borgata", b365 = book === "bet365";
-  var bk = mg ? "BetMGM" : (bga ? "Borgata" : (b365 ? "bet365" : "FanDuel"));
-  var bcls = mg ? "mg" : (bga ? "bga" : (b365 ? "b365" : "fd"));
+  var book = b.book, mg = book === "betmgm", bga = book === "borgata", b365 = book === "bet365", dk = book === "draftkings";
+  var bk = mg ? "BetMGM" : (bga ? "Borgata" : (b365 ? "bet365" : (dk ? "DraftKings" : "FanDuel")));
+  var bcls = mg ? "mg" : (bga ? "bga" : (b365 ? "b365" : (dk ? "dk" : "fd")));
   var nfl = b.league === "nfl", soc = b.league === "fifa", ttn = b.league === "tt", own = nfl || soc || ttn;
   var tag = (nfl ? "<span class=\"bk fb\">Football</span>" : "") + (soc ? "<span class=\"bk sc\">Soccer</span>" : "") + (ttn ? "<span class=\"bk tt\">Table tennis</span>" : "") + (DATA.split ? "<span class=\"bk " + (bcls === "fd" ? "" : bcls) + "\">" + bk + "</span>" : "");
   var go = (nfl || ttn) ? "starts" : (soc ? "kicks off" : "tips");
@@ -406,9 +408,9 @@ function betCard(b){
 // button. No Line field: a ticket's lines are part of which ticket it is.
 function parlayCard(b){
   var k = esc(b.key), st = mins(b.start), ed = EDIT[b.key] || {}, legs = b.legs || [], n = legs.length;
-  var mg = b.book === "betmgm", bga = b.book === "borgata", b365 = b.book === "bet365";
-  var bk = mg ? "BetMGM" : (bga ? "Borgata" : (b365 ? "bet365" : "FanDuel"));
-  var bcls = mg ? "mg" : (bga ? "bga" : (b365 ? "b365" : "fd"));
+  var mg = b.book === "betmgm", bga = b.book === "borgata", b365 = b.book === "bet365", dk = b.book === "draftkings";
+  var bk = mg ? "BetMGM" : (bga ? "Borgata" : (b365 ? "bet365" : (dk ? "DraftKings" : "FanDuel")));
+  var bcls = mg ? "mg" : (bga ? "bga" : (b365 ? "b365" : (dk ? "dk" : "fd")));
   var soc = b.league === "fifa", ttn = b.league === "tt";
   var tag = (soc ? "<span class=\"bk sc\">Soccer</span>" : "") + (ttn ? "<span class=\"bk tt\">Table tennis</span>" : "") + (DATA.split ? "<span class=\"bk " + (bcls === "fd" ? "" : bcls) + "\">" + bk + "</span>" : "");
   var when = st <= 0 ? "<span class=\"soon\">closing now</span>" : (st <= 5 ? "<span class=\"soon\">closes in " + st + " min</span>" : "closes in " + st + " min");
@@ -538,7 +540,7 @@ function renderTT(){
   var singles = todo.filter(function(b){ return b.kind !== "parlay"; });
   var tickets = todo.filter(function(b){ return b.kind === "parlay"; });
   $("ntt").textContent = singles.length + tickets.length;
-  var h = "<p class=\"note\"><b>Table tennis &mdash; TT Elite Series (Poland), FanDuel only.</b> The source board&rsquo;s own picks, mirrored in full with his one-click slip links. The button loads the exact selection &mdash; check the odds on the slip match the card before betting. Results settle from the source board&rsquo;s own record.</p>";
+  var h = "<p class=\"note\"><b>Table tennis &mdash; TT Elite Series (Poland) &mdash; FanDuel + DraftKings equivalents.</b> The source board&rsquo;s own picks, mirrored in full with his one-click FanDuel slip links. Each pick also posts a DraftKings twin (DK carries the same TT Elite matches, usually with more markets): the DK button opens the DK lobby &mdash; find the same match there and verify the odds before betting. Results settle from the source board&rsquo;s own record.</p>";
   h += singles.length ? singles.map(betCard).join("")
     : "<div class=\"empty\"><b>No table tennis picks right now</b>TT matches run every few minutes; new picks appear here shortly before they start.</div>";
   if (tickets.length) h += "<h2>Parlays &middot; " + tickets.length + "</h2><p class=\"note\">TT parlays are the source&rsquo;s own tickets &mdash; place each one on the Parlay line, not as straights.</p>" + tickets.map(parlayCard).join("");
@@ -550,7 +552,7 @@ function placedItem(k, r){
     : (r.result ? "<span class=\"res " + esc(r.result) + "\">" + esc(r.result === "win" ? "won" : r.result === "loss" ? "lost" : r.result) + "</span>" : "<span class=\"res\">pending</span>");
   var pnl = r.status === "placed" && r.pnl != null ? "<div class=\"pnl " + (r.pnl > 0 ? "pos" : r.pnl < 0 ? "neg" : "") + "\">" + esc(signed(r.pnl)) + "</div>" : "";
   var undo = r.locked ? "" : "<button class=\"btn sm ghost\" data-act=\"undo\" data-k=\"" + esc(k) + "\">Undo</button>";
-  return "<div class=\"item\"><div class=\"l\"><div class=\"t\">" + esc(r.pick || "") + (r.league === "nfl" ? " <span class=\"bk fb\">Football</span>" : "") + (r.league === "fifa" ? " <span class=\"bk sc\">Soccer</span>" : "") + (r.league === "tt" ? " <span class=\"bk tt\">Table tennis</span>" : "") + (r.book === "betmgm" ? " <span class=\"bk mg\">BetMGM</span>" : "") + (r.book === "borgata" ? " <span class=\"bk bga\">Borgata</span>" : "") + (r.book === "bet365" ? " <span class=\"bk b365\">bet365</span>" : "") + (r.status === "placed" ? " &middot; " + esc(am(r.price)) + " &middot; " + esc(usd(r.stake, true)) : "") + (r.limited ? " <span class=\"bk\">Limited</span>" : "") + "</div>"
+  return "<div class=\"item\"><div class=\"l\"><div class=\"t\">" + esc(r.pick || "") + (r.league === "nfl" ? " <span class=\"bk fb\">Football</span>" : "") + (r.league === "fifa" ? " <span class=\"bk sc\">Soccer</span>" : "") + (r.league === "tt" ? " <span class=\"bk tt\">Table tennis</span>" : "") + (r.book === "betmgm" ? " <span class=\"bk mg\">BetMGM</span>" : "") + (r.book === "borgata" ? " <span class=\"bk bga\">Borgata</span>" : "") + (r.book === "bet365" ? " <span class=\"bk b365\">bet365</span>" : "")+ (r.book === "draftkings" ? " <span class=\"bk dk\">DraftKings</span>" : "") + (r.status === "placed" ? " &middot; " + esc(am(r.price)) + " &middot; " + esc(usd(r.stake, true)) : "") + (r.limited ? " <span class=\"bk\">Limited</span>" : "") + "</div>"
     + "<div class=\"s\">" + (r.kind === "parlay" ? esc(r.match || "") + " &middot; first leg " + esc(tm(r.start))
         : esc(r.match || "") + " &middot; " + esc(r.market || "") + " &middot; tip " + esc(tm(r.start)) + (r.score ? " &middot; final " + esc(r.score) : "")) + "</div></div>"
     + "<div class=\"r\">" + res + pnl + (undo ? "<div style=\"margin-top:6px\">" + undo + "</div>" : "") + "</div></div>";

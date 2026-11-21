@@ -1112,6 +1112,34 @@ def board_bets():
             'line': (f.get('line') if f.get('line') is not None else ''),
             'legs': f.get('legs') or [],
             'web': f.get('web') or '', 'app': f.get('app') or f.get('web') or ''})
+        # DraftKings twin (same TT Elite match — DK's TT menu is the deepest
+        # of the US books). No deep-link resolver: DK's site/app is
+        # bot-walled from datacenter IPs, so the button opens the DK lobby
+        # and the note tells the user to find the same match. The shown
+        # price/EV are FanDuel's (verify-flag note per the twin rule — never
+        # clone a source price silently); grading settles off the SAME
+        # friend-ledger result via the |draftkings twin key in graded_rows().
+        dk_note = ('DraftKings equivalent of the FanDuel pick: same TT Elite match — '
+                   'open Table Tennis in the DK app/site and find this match. '
+                   'VERIFY the odds on the DK slip: the price/EV shown are FanDuel\'s '
+                   'and DK\'s line can differ.'
+                   + (' DK parlays: build the same legs on one ticket (Parlay line).'
+                      if is_parlay else ''))
+        bets.append({
+            'key': f.get('key') + '|draftkings',
+            'kind': 'parlay' if is_parlay else 'tt', 'league': 'tt',
+            'lgName': 'DraftKings: Table Tennis — TT Elite Series (Poland)',
+            'match': (f.get('fdName')
+                      or ('%s v %s' % (f.get('ga') or '?', f.get('gb') or '?'))),
+            'ga': f.get('ga') or '', 'gb': f.get('gb') or '',
+            'market': f.get('market'), 'side': f.get('side'),
+            'price': f.get('price'), 'stake': f.get('stake'),
+            'start': f.get('start'), 'note': dk_note,
+            'armed': bool(f.get('armed', True)), 'book': 'draftkings',
+            'line': (f.get('line') if f.get('line') is not None else ''),
+            'legs': f.get('legs') or [],
+            'web': 'https://sportsbook.draftkings.com/',
+            'app': 'https://sportsbook.draftkings.com/'})
     # best EV first so the top of the card is the brain's strongest conviction.
     # Notes without a parseable 'EV x%' (e.g. TT rows the observer never
     # scored) previously crashed this float(); park them at the bottom.
@@ -1411,6 +1439,10 @@ def graded_rows():
         res = str(v.get('result') or '').lower()
         if res in ('win', 'loss', 'push'):
             out.append({'key': k, 'result': res, 'pnl': None})
+            # DraftKings TT twins share the friend-ledger result (the pick's
+            # outcome is book-independent); pnl stays None so the board
+            # recomputes it from the user's own DK stake/price.
+            out.append({'key': k + '|draftkings', 'result': res, 'pnl': None})
     # manual/backfill grades (seeded from the repo; survives /var/data wipes).
     # Orphaned board placements whose pipeline ledger row was wiped by a
     # deploy settle from here — pnl stays None so the board recomputes it
