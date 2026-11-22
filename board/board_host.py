@@ -181,6 +181,14 @@ def init_db():
         c.execute("DELETE FROM placements")
         c.commit()
         print(f'boot reset: cleared {n} placement(s)')
+    c.close()
+
+
+def ensure_env_users():
+    """Create FIRST_ADMIN + ADD_USERS users. Runs AFTER backup_restore(): on the
+    free tier the boot restore overwrites the DB file, so any user created
+    before it would be wiped. Idempotent: skips usernames that already exist."""
+    c = db()
     if not c.execute("SELECT COUNT(*) FROM users").fetchone()[0]:
         u, p = os.environ.get('FIRST_ADMIN_USERNAME'), os.environ.get('FIRST_ADMIN_PASSWORD')
         if u and p:
@@ -758,6 +766,7 @@ class H(BaseHTTPRequestHandler):
 if __name__ == '__main__':
     init_db()
     backup_restore()          # free tier: /var/data starts empty on every boot
+    ensure_env_users()        # AFTER restore: env users would be wiped by it
     _repair_pnl()             # after restore: fix graded rows whose pnl came from the feed's ledger
     threading.Thread(target=_settle_loop, daemon=True).start()
     if GH_TOKEN:
