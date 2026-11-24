@@ -169,6 +169,7 @@ font-weight:600;box-shadow:0 4px 18px rgba(0,0,0,.25);display:none}
  <button data-tab="tt">Table tennis<span class="n" id="ntt">0</span></button>
  <button data-tab="placed">Placed<span class="n" id="np">0</span></button>
  <button id="nav-convert" data-tab="convert" hidden>Convert</button>
+  <button id="nav-dfs" data-tab="dfs" hidden>DFS parlays</button>
  <button data-tab="record">Record</button></nav>
 </header>
 <section id="v-bets"></section>
@@ -176,6 +177,7 @@ font-weight:600;box-shadow:0 4px 18px rgba(0,0,0,.25);display:none}
 <section id="v-tt" hidden></section>
 <section id="v-placed" hidden></section>
 <section id="v-convert" hidden></section>
+<section id="v-dfs" hidden></section>
 <section id="v-record" hidden></section>
 </main><div id="toast"></div>
 <script>
@@ -324,7 +326,8 @@ function head(){
   }
   var dev = (d.role === "developer" || d.role === "admin");
   var nc = $("nav-convert"); if (nc) nc.hidden = !dev;
-  if (!dev && TAB === "convert") { TAB = "bets"; }
+  var nd = $("nav-dfs"); if (nd) nd.hidden = !dev;
+  if (!dev && (TAB === "convert" || TAB === "dfs")) { TAB = "bets"; }
 }
 
 function modelTag(b){
@@ -764,15 +767,65 @@ function renderConvert(){
   convResults();
 }
 
+
+function dfsCalc(){
+  var n = parseInt($("dfsN").value || "3", 10);
+  var pay = parseFloat($("dfsPay").value);
+  if (!pay) pay = (n === 2 ? 3 : n === 3 ? 6 : n === 4 ? 10 : 6);
+  var bank = parseFloat($("dfsBank").value) || 500;
+  var fairs = [];
+  for (var i = 0; i < 4; i++) { var f = $("dfsL" + i); if (f) { var v = parseFloat(f.value); if (v > 0 && v <= 100) fairs.push(v / 100); else break; } }
+  var be = Math.pow(1 / pay, 1 / n);
+  var out = "";
+  if (fairs.length < 2) {
+    out = "Enter at least 2 legs (the sharp fair% Novig gives for the side you take).";
+  } else {
+    var win = 1, lr = "";
+    for (var j = 0; j < fairs.length; j++) {
+      var p = fairs[j]; win *= p;
+      var edge = (p - be) * 100;
+      lr += '<div class="s">leg ' + (j + 1) + ': ' + (p*100).toFixed(1) + '% vs breakeven ' + (be*100).toFixed(1)
+          + '% = <b class="' + (edge>=0?'pos':'neg') + '">' + (edge>=0?'+':'') + edge.toFixed(1) + ' pts</b>'
+          + (p < be ? ' <b>drop this leg</b>' : '') + '</div>';
+    }
+    var ev = win * pay - 1;
+    var qk = Math.max(0, 0.25 * (win * pay - 1) / (pay - 1) * bank);
+    out = '<div class="s">breakeven/leg ' + (be*100).toFixed(1) + '% (' + pay + "x, " + fairs.length + "-pick)</div>" + lr
+        + '<div class="s" style="margin-top:6px">slip wins ' + (win*100).toFixed(1) + '% &#183; EV <b class="' + (ev>=0?'pos':'neg') + '">' + (ev>=0?'+':'') + (ev*100).toFixed(1) + '%</b>/unit &#183; quarter-Kelly <b>$' + qk.toFixed(0) + '</b> (roll $' + bank + ')</div>';
+  }
+  $("dfsRes").innerHTML = out;
+}
+function renderDfs(){
+  var el = $("v-dfs"); if (!el) return;
+  var h = '<div class="card"><div class="t" style="margin-bottom:8px">DFS fixed-payout parlay system</div>';
+  h += '<div class="s"><b>Find a leg:</b> ask Hermes for the sharp prop board (<code>novig_prop_board.py</code>), take the sides flagged <code>&lt;&lt;&lt;</code> (fair &#8805; 55%). On the app, confirm the same player/stat/line is posted and the favored side is <b>not</b> shown discounted (shield). A leg = flagged side, app has that line, no heavy shield.</div>';
+  h += '<div class="s"><b>Combine:</b> top edges by margin (fair% &minus; 55%), different games only, never a filler leg, keep shielded picks out. 3-pick 6x, not 2-pick 3x (&minus;137 juice). Stake quarter-Kelly (~$10 on $500), 2&ndash;3 slips/day, read the tracker after ~50&ndash;60 graded slips.</div>';
+  h += '</div>';
+  h += '<div class="card"><div class="t" style="margin-bottom:8px">Slip EV calculator</div>';
+  h += '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">';
+  h += '<label style="flex:1;min-width:90px"># legs<input id="dfsN" inputmode="numeric" value="3" style="width:100%"></label>';
+  h += '<label style="flex:1;min-width:90px">payout (x)<input id="dfsPay" inputmode="decimal" value="6" style="width:100%"></label>';
+  h += '<label style="flex:1;min-width:90px">bankroll $<input id="dfsBank" inputmode="decimal" value="500" style="width:100%"></label>';
+  h += '</div><div style="margin-top:8px">leg sharp fair% (Novig):</div>';
+  h += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">';
+  for (var i = 0; i < 4; i++) h += '<input id="dfsL' + i + '" inputmode="decimal" placeholder="leg ' + (i+1) + ' fair%" style="flex:1;min-width:70px">';
+  h += '</div><div class="item" style="margin-top:8px" id="dfsRes"><div class="s">Enter leg fair% (e.g. 61, 59, 58) to see slip EV + stake.</div></div>';
+  h += '</div>';
+  el.innerHTML = h;
+  ["dfsN","dfsPay","dfsBank","dfsL0","dfsL1","dfsL2","dfsL3"].forEach(function(id){ var f = $(id); if (f) f.oninput = dfsCalc; });
+  dfsCalc();
+}
+
 function render(){
   if (!DATA) return;
   head(); renderBets(); renderPlaced();
   if (TAB === "record") renderRecord();
   if (TAB === "convert") renderConvert();
+  if (TAB === "dfs") renderDfs();
   if (TAB === "b365") renderB365();
   if (TAB === "tt") renderTT();
   [].forEach.call(document.querySelectorAll("nav button"), function(b){ b.classList.toggle("on", b.getAttribute("data-tab") === TAB); });
-  ["bets", "b365", "tt", "placed", "convert", "record"].forEach(function(t){ $("v-" + t).hidden = (t !== TAB); });
+  ["bets", "b365", "tt", "placed", "convert", "dfs", "record"].forEach(function(t){ $("v-" + t).hidden = (t !== TAB); });
 }
 
 function lockOut(msg){
