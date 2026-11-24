@@ -208,6 +208,14 @@ def ensure_env_users():
         if u and p and not c.execute("SELECT 1 FROM users WHERE username=?", (u,)).fetchone():
             create_user(c, u, p, role)
             print('ADD_USERS: created', u, 'role', role)
+        elif u and len(parts) > 2 and parts[2]:
+            # Explicit role on an EXISTING user: enforce it (promote/demote) each boot.
+            # Only fires when a role IS specified — a bare "u:p" seed never demotes.
+            cur = c.execute("SELECT role FROM users WHERE username=?", (u,)).fetchone()
+            if cur and cur[0] != role:
+                c.execute("UPDATE users SET role=? WHERE username=?", (role, u))
+                c.commit()
+                print('ADD_USERS: set role', role, 'for', u)
     c.close()
 
 

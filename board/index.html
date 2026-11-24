@@ -168,14 +168,14 @@ font-weight:600;box-shadow:0 4px 18px rgba(0,0,0,.25);display:none}
  <button data-tab="b365">bet365<span class="n" id="n365">0</span></button>
  <button data-tab="tt">Table tennis<span class="n" id="ntt">0</span></button>
  <button data-tab="placed">Placed<span class="n" id="np">0</span></button>
- <button data-tab="sims">Sims</button>
+ <button id="nav-convert" data-tab="convert" hidden>Convert</button>
  <button data-tab="record">Record</button></nav>
 </header>
 <section id="v-bets"></section>
 <section id="v-b365" hidden></section>
 <section id="v-tt" hidden></section>
 <section id="v-placed" hidden></section>
-<section id="v-sims" hidden></section>
+<section id="v-convert" hidden></section>
 <section id="v-record" hidden></section>
 </main><div id="toast"></div>
 <script>
@@ -187,6 +187,7 @@ var LM = location.pathname.match(/^\/(p|a)\/[A-Za-z0-9_-]+/), BASE = LM ? LM[0] 
 var QS = PID ? "?p=" + encodeURIComponent(PID) : "";
 var DATA = null, REC = null, TAB = "bets", OPEN = {}, EDIT = {}, BUSY = false, recAt = 0, LOCKED = null;
 var MYBANK_FD = null, MYBANK_MGM = null, MYBANK_BGA = null, MYBANK_B365 = null, BOOST15 = false;
+var CONV_FAV = "", CONV_DOG = "", CONV_K = "";
 try { MYBANK_FD = localStorage.getItem("pb-fdbank"); } catch (e) {}
 try { MYBANK_MGM = localStorage.getItem("pb-mgmbank"); } catch (e) {}
 try { MYBANK_BGA = localStorage.getItem("pb-bgabank"); } catch (e) {}
@@ -321,6 +322,9 @@ function head(){
       + "</select><a href=\"" + BASE + "/admin" + (PID ? QS : "?p=" + encodeURIComponent(p.id)) + "\">Tracking &rarr;</a>";
     $("psel").onchange = function(){ location.search = "?p=" + encodeURIComponent(this.value); };
   }
+  var dev = (d.role === "developer" || d.role === "admin");
+  var nc = $("nav-convert"); if (nc) nc.hidden = !dev;
+  if (!dev && TAB === "convert") { TAB = "bets"; }
 }
 
 function modelTag(b){
@@ -712,15 +716,63 @@ function renderSims(){
   $("v-sims").innerHTML=h;
 }
 
+function mlProb(ml){ ml = Number(ml); if (!isFinite(ml)) return null; return ml < 0 ? -ml / (-ml + 100) : 100 / (ml + 100); }
+function mlFromProb(p){ p = Math.max(0.0001, Math.min(0.9999, Number(p) || 0)); return p >= 0.5 ? -Math.round(100 * p / (1 - p)) : Math.round(100 * (1 - p) / p); }
+function shin2(b1, b2){
+  var S = b1 + b2;
+  function lhs(z){ var A = z * z + 4 * (1 - z) * b1 * b1 / S, B = z * z + 4 * (1 - z) * b2 * b2 / S; return Math.sqrt(A) + Math.sqrt(B) - 2; }
+  var lo = 0, hi = 0.999999999, i;
+  for (i = 0; i < 200; i++){ var m = (lo + hi) / 2; if (lhs(m) > 0) lo = m; else hi = m; }
+  var z = (lo + hi) / 2, A = z * z + 4 * (1 - z) * b1 * b1 / S;
+  return (Math.sqrt(A) - z) / (2 * (1 - z));
+}
+function convResults(){
+  var el = $("conv-res"); if (!el) return;
+  var favRaw = String(CONV_FAV || "").trim(), dogRaw = String(CONV_DOG || "").trim();
+  if (!favRaw || !dogRaw) { el.innerHTML = '<div class="empty"><b>Enter both moneylines</b>Favorite (e.g. &#8722;300) and dog (e.g. +240) to see each side\u2019s Kalshi fair price.</div>'; return; }
+  var fp = mlProb(favRaw), dp = mlProb(dogRaw);
+  if (fp == null || dp == null || !(fp > 0 && fp < 1) || !(dp > 0 && dp < 1)) { el.innerHTML = '<div class="empty"><b>Check the lines</b>Format like &#8722;300 and +240.</div>'; return; }
+  var S = fp + dp, vig = (S - 1) * 100;
+  var qf = fp / S, qd = dp / S;
+  var sf = shin2(fp, dp), sd = 1 - sf;
+  var kask = (String(CONV_K || "").trim()) ? Number(CONV_K) : null;
+  if (kask != null && !(kask > 0 && kask < 1)) kask = null;
+  var h = "";
+  h += '<div class="t">' + am(Number(favRaw)) + ' / ' + am(Number(dogRaw)) + '</div>';
+  h += '<div class="s">Implied fav ' + (fp * 100).toFixed(1) + '% &#183; dog ' + (dp * 100).toFixed(1) + '% &#183; <b>' + (S >= 1 ? 'margin ' + vig.toFixed(2) + '%' : 'ARB ' + Math.abs(vig).toFixed(2) + '% (sum &lt; 100%)') + '</b></div>';
+  h += '<div class="item"><div class="l"><div class="t">Favorite YES</div><div class="s">proportional <b>$' + qf.toFixed(3) + '</b> (fair ' + am(mlFromProb(qf)) + ') &#183; Shin <b>$' + sf.toFixed(3) + '</b> (' + am(mlFromProb(sf)) + ')</div></div></div>';
+  h += '<div class="item"><div class="l"><div class="t">Dog YES</div><div class="s">proportional <b>$' + qd.toFixed(3) + '</b> (fair ' + am(mlFromProb(qd)) + ') &#183; Shin <b>$' + sd.toFixed(3) + '</b> (' + am(mlFromProb(sd)) + ')</div></div></div>';
+  if (kask != null) {
+    var edge = (qf - kask) * 100;
+    var lean = qf >= kask ? 'buy YES (favorite underpriced on Kalshi)' : 'buy NO (favorite overpriced \u2014 take the dog side / short the favourite)';
+    h += '<div class="s" style="margin-top:8px">Kalshi live YES $' + kask.toFixed(2) + ' vs fair $' + qf.toFixed(3) + ' \u2192 <b class="' + (edge >= 0 ? 'pos' : 'neg') + '">' + (edge >= 0 ? '+' : '') + edge.toFixed(1) + '\u00a2/contract</b> edge \u2014 ' + lean + '.</div>';
+  } else {
+    h += '<div class="s" style="margin-top:8px">Enter the live Kalshi YES price (top box) to flag the mispriced side.</div>';
+  }
+  el.innerHTML = h;
+}
+function renderConvert(){
+  var el = $("v-convert"); if (!el) return;
+  var h = '<div class="card"><div class="t" style="margin-bottom:8px">Sportsbook line \u2192 Kalshi fair value</div>';
+  h += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+  h += '<label style="flex:1;min-width:120px">Favorite ML<input id="cvf" inputmode="text" autocomplete="off" placeholder="-300" value="' + esc(CONV_FAV) + '"></label>';
+  h += '<label style="flex:1;min-width:120px">Dog ML<input id="cvd" inputmode="text" autocomplete="off" placeholder="+240" value="' + esc(CONV_DOG) + '"></label>';
+  h += '<label style="flex:1;min-width:120px">Kalshi YES $ (fav)<input id="cvk" inputmode="decimal" autocomplete="off" placeholder="0.72" value="' + esc(CONV_K) + '"></label>';
+  h += '</div></div>';
+  h += '<div class="card" id="conv-res"></div>';
+  el.innerHTML = h;
+  convResults();
+}
+
 function render(){
   if (!DATA) return;
   head(); renderBets(); renderPlaced();
   if (TAB === "record") renderRecord();
-  if (TAB === "sims") renderSims();
+  if (TAB === "convert") renderConvert();
   if (TAB === "b365") renderB365();
   if (TAB === "tt") renderTT();
   [].forEach.call(document.querySelectorAll("nav button"), function(b){ b.classList.toggle("on", b.getAttribute("data-tab") === TAB); });
-  ["bets", "b365", "tt", "placed", "sims", "record"].forEach(function(t){ $("v-" + t).hidden = (t !== TAB); });
+  ["bets", "b365", "tt", "placed", "convert", "record"].forEach(function(t){ $("v-" + t).hidden = (t !== TAB); });
 }
 
 function lockOut(msg){
@@ -804,6 +856,12 @@ document.addEventListener("click", function(ev){
   if (a === "undo") { act({action: "undo", key: k}).then(function(){ toast("Undone"); render(); if (TAB === "record") loadRecord(true); }).catch(function(){}); return; }
 });
 document.addEventListener("input", function(ev){
+  if (ev.target && (ev.target.id === "cvf" || ev.target.id === "cvd" || ev.target.id === "cvk")) {
+    var v = ev.target.value.trim();
+    if (ev.target.id === "cvf") CONV_FAV = v; else if (ev.target.id === "cvd") CONV_DOG = v; else CONV_K = v;
+    convResults();
+    return;
+  }
   if (ev.target && ev.target.id === "fdbank") {
     MYBANK_FD = ev.target.value.trim();
     try { if (MYBANK_FD) localStorage.setItem("pb-fdbank", MYBANK_FD); else localStorage.removeItem("pb-fdbank"); } catch (e) {}
