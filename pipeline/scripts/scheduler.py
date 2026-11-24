@@ -1086,8 +1086,14 @@ def board_bets():
             fst = dt.datetime.fromisoformat((f.get('start') or '').replace('Z', '+00:00'))
         except Exception:
             continue
-        if fst < dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=9):
-            continue  # kicked off + grace elapsed
+        # FanDuel TT Elite props are IN-PLAY ONLY (no pre-match market) and a
+        # best-of-5 match runs ~15-25 min. Keep the row visible through the
+        # whole live window so the user can live-bet it — a 9-min grace dropped
+        # rows mid-match (user 2026-11-24: "you can only live bet the props so
+        # they disappear when I try to bet them"). 40 min covers the longest
+        # possible match + a comfortable margin.
+        if fst < dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=40):
+            continue  # well past the live window
         is_parlay = (f.get('kind') == 'parlay')
         s = None if is_parlay else tt_scored.get(f.get('key'))
         if s:
