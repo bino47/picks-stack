@@ -104,6 +104,10 @@ def _ledger_backup_loop():
 JOBS = [
     # (name, interval_s, script, args)
     ('esb_cycle', 600, 'esb_cycle.py', []),
+    # esb backfill: separate, slower job (was part of the 10-min esb_cycle; the
+    # 40-page deep walk was burning the 3600-req/hr BetsAPI budget). Hourly
+    # keeps the training corpus fresh without hammering.
+    ('esb_backfill', 3600, 'esb_backfill.py', []),
     ('model_book', 600, 'model_sb_paper.py', []),
     ('bb_cycle', 600, 'esb_bb_cycle.py', []),
     ('kalshi_recorder', 7200, 'kalshi_esports_recorder.py', []),
@@ -163,8 +167,8 @@ def run_job(name, script, args):
 
 
 def esb_cycle():
-    """backfill delta -> pick -> settle -> report, as one cycle."""
-    for script, args in (('esb_backfill.py', []), ('esb_picker.py', ['pick']),
+    """pick -> settle -> report, as one cycle (backfill is its own slower job)."""
+    for script, args in (('esb_picker.py', ['pick']),
                          ('esb_picker.py', ['settle']), ('esb_picker.py', ['report'])):
         run_job('esb:' + script, script, args)
     _last_ok['esb_cycle'] = dt.datetime.utcnow().isoformat() + 'Z'
