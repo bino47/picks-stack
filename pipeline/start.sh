@@ -14,6 +14,7 @@ if [ -d "$ROOT/seed" ]; then
     base="$(basename "$f")"
     case "$base" in
       scored_card.json|real_games.json) DEST="$DATA_ROOT/history/$base" ;;
+      manual_graded.jsonl)              DEST="$DATA_ROOT/$base"; cp "$f" "$DEST"; continue ;;
       *)                                DEST="$DATA_ROOT/$base" ;;
     esac
     [ -e "$DEST" ] || cp "$f" "$DEST"

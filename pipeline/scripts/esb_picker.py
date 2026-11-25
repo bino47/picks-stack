@@ -6,7 +6,7 @@ Isolated self-owned stream (skill rule): writes ONLY history/esb_* files.
   python esb_picker.py settle    # grade matured picks vs events/ended
   python esb_picker.py report    # ledger summary
 """
-import json, os, re, sys, time, urllib.request
+import json, os, re, sys, time, urllib.request, urllib.error
 import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import esb_model
@@ -56,15 +56,32 @@ def kelly_stake(p, dec, br):
     return round(max(MIN_STAKE, min(stake, br * MAX_STAKE_PCT)), 2)
 
 
-def get(url, tries=3):
+def get(url, tries=4):
     for i in range(tries):
         try:
-            return json.loads(urllib.request.urlopen(
-                urllib.request.Request(url, headers=UA), timeout=25).read().decode())
+            req = urllib.request.Request(url, headers=UA)
+            with urllib.request.urlopen(req, timeout=25) as r:
+                return json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                reset = e.headers.get('x-ratelimit-reset')
+                wait = 30.0
+                if reset:
+                    try:
+                        wait = max(5.0, min(120.0, float(reset) - time.time()))
+                    except Exception:
+                        pass
+                if i == tries - 1:
+                    raise
+                time.sleep(wait + (i * 3.0))
+                continue
+            if i == tries - 1:
+                raise
+            time.sleep(4 * (i + 1))
         except Exception:
             if i == tries - 1:
                 raise
-            time.sleep(4)
+            time.sleep(4 * (i + 1))
 
 
 def parse_team(name):

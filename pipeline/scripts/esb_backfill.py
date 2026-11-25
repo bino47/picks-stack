@@ -10,7 +10,7 @@ Leagues: 22614 Esoccer Battle 8-min (2x4 leagues: World Cup A/B, Premier,
 La Liga, Serie A, Bundesliga, Portugal, Europa), 38439 Battle Volta 6-min.
 Safe to re-run: dedupes on BetsAPI event id.
 """
-import json, os, re, time, urllib.request
+import json, os, re, time, urllib.request, urllib.error
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(os.environ.get('SCORER_HISTORY_DIR', HERE), 'esb_games.jsonl')
@@ -20,15 +20,32 @@ LEAGUES = {22614: 'battle8', 38439: 'volta6', 37298: 'h2hggl8'}
 MAX_PAGES = 40          # 50 per page -> up to 2000 games per league
 
 
-def get(url, tries=3):
+def get(url, tries=4):
     for i in range(tries):
         try:
-            return json.loads(urllib.request.urlopen(
-                urllib.request.Request(url, headers=UA), timeout=25).read().decode())
+            req = urllib.request.Request(url, headers=UA)
+            with urllib.request.urlopen(req, timeout=25) as r:
+                return json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                reset = e.headers.get('x-ratelimit-reset')
+                wait = 30.0
+                if reset:
+                    try:
+                        wait = max(5.0, min(120.0, float(reset) - time.time()))
+                    except Exception:
+                        pass
+                if i == tries - 1:
+                    raise
+                time.sleep(wait + (i * 3.0))
+                continue
+            if i == tries - 1:
+                raise
+            time.sleep(5 * (i + 1))
         except Exception:
             if i == tries - 1:
                 raise
-            time.sleep(5)
+            time.sleep(5 * (i + 1))
 
 
 def alias(name):
