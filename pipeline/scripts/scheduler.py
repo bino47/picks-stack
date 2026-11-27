@@ -1554,6 +1554,45 @@ def board_card():
                             'bankroll': 0, 'fifaBankroll': 0, 'cap': 700},
                 'liveBankroll': {},
                 'settings': {}, 'bets': []}
+    # NEW shape: the LIVE :8808 self picks board payload (bets[] board-shaped).
+    relays_8808 = isinstance(payload.get('bets'), list) and payload['bets']
+    if relays_8808:
+        bets = []
+        for b in payload['bets']:
+            if not isinstance(b, dict):
+                continue
+            ga = str(b.get('home') or '')
+            gb = str(b.get('away') or '')
+            lg = str(b.get('league') or 'nba').lower()
+            bets.append({
+                'key': b.get('key'), 'kind': b.get('kind') or 'single',
+                'league': lg, 'book': 'fanduel',
+                'eventId': str(b.get('event_id') or ''),
+                'start': b.get('start') or '',
+                'ga': ga, 'gb': gb,
+                'match': b.get('match') or ('%s v %s' % (ga, gb)).strip(' v '),
+                'fdName': b.get('match') or ('%s @ %s' % (gb, ga)).strip(' @ '),
+                'lgName': {'nba': 'eBasketball H2H · FanDuel',
+                           'fifa': 'eSoccer H2H · FanDuel',
+                           'nfl': 'eFootball H2H · FanDuel'}.get(lg, ''),
+                'market': b.get('market'), 'side': b.get('side'),
+                'line': None, 'price': b.get('price'),
+                'stake': float(b.get('stake') or 0),
+                'ir': float(b.get('ev') or 0), 'pi': b.get('ens_p'),
+                'legs': b.get('legs') or [],
+                'web': None, 'app': None,
+                'armed': True, 'why': 'self picks model', 'note': None,
+            })
+        return {'at': payload.get('at') or at, 'live': True, 'why': '',
+                'title': 'FanDuel board', 'checkedAt': at,
+                'partner': {
+                    'id': 'pipeline', 'name': 'The Model',
+                    'bankroll': float((payload.get('bankrolls') or {}).get('fanduel') or 0),
+                    'fifaBankroll': float((payload.get('bankrolls') or {}).get('betmgm') or 0),
+                    'cap': 700,
+                },
+                'liveBankroll': {},
+                'settings': {}, 'bets': bets}
     bets = []
     for row in payload.get('rows') or []:
         lg = str(row.get('league') or 'nba').lower()
@@ -1608,7 +1647,12 @@ def self_site_card_push(token, raw):
     try:
         payload = json.loads(raw.decode('utf-8'))
         rows = payload.get('rows') or []
-        assert isinstance(rows, list) and rows, 'payload has no rows[]'
+        bets = payload.get('bets') or []
+        # two push generations are valid: the standalone self_site_picks.json
+        # (rows[].picks[]) and the LIVE :8808 self board /data payload (bets[],
+        # already board-shaped). Either is accepted; the host converts.
+        assert (isinstance(rows, list) and rows) or \
+            (isinstance(bets, list) and bets), 'payload has no rows[]/bets[]'
     except Exception as e:
         return False, 'bad payload: %s' % e
     try:
@@ -1620,7 +1664,7 @@ def self_site_card_push(token, raw):
     # wipe the card (board-db branch is the only persistent store on free tier)
     _backup_one('pipeline/ledgers/self_site_picks.json', _card_path())
     _last_ok['card_push'] = dt.datetime.utcnow().isoformat() + 'Z'
-    return True, 'card stored: %d rows' % len(rows)
+    return True, 'card stored: %d picks' % (len(bets) if bets else len(rows))
 
 
 class H(BaseHTTPRequestHandler):
