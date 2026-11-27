@@ -39,6 +39,11 @@ LEDGER_FILES = {                      # remote path -> local path
     # the desktop-pushed self-site card must survive redeploys too (else every
     # pipeline restart wipes /var/data/self_site_picks.json and empties the board)
     'pipeline/ledgers/self_site_picks.json':      os.path.join(HIST, 'self_site_picks.json'),
+    # TT rows mirror Roy's LIVE card, which drops a match the moment it goes
+    # live/finishes — so the pick vanishes exactly when the user live-bets it.
+    # Snapshot seen TT rows here so they survive Roy's card rotation AND our own
+    # redeploys; the board grace window is then applied against this snapshot.
+    'pipeline/ledgers/tt_picks.json':             os.path.join(HIST, 'tt_picks.json'),
 }
 _last_pushed = {}
 
@@ -1123,8 +1128,15 @@ def board_bets():
     # it ages out open (known gap, 2026-11-20).
     tt_scored = {c.get('key'): c for c in card.get('card', [])
                  if c.get('league') == 'tt'}
-    for f in (friend.get('bets') or []):
-        if (f.get('league') or '') != 'tt':
+    # MERGE the friend card's current tt rows into the local snapshot, then
+    # iterate the SNAPSHOT (not the live card): Roy's board drops a match the
+    # instant it goes live/finishes, so mirroring it live means the pick
+    # vanishes exactly when the user live-bets it. The snapshot keeps every
+    # row seen until OUR grace window below expires it.
+    tt_live = [b for b in (friend.get('bets') or []) if (b.get('league') or '') == 'tt']
+    tt_rows = _tt_snapshot_merge(tt_live)
+    for key, f in tt_rows.items():
+        if not isinstance(f, dict):
             continue
         try:
             fst = dt.datetime.fromisoformat((f.get('start') or '').replace('Z', '+00:00'))
@@ -1139,7 +1151,7 @@ def board_bets():
         now = dt.datetime.now(dt.timezone.utc)
         fd_stale = fst < now - dt.timedelta(minutes=40)
         is_parlay = (f.get('kind') == 'parlay')
-        s = None if is_parlay else tt_scored.get(f.get('key'))
+        s = None if is_parlay else tt_scored.get(key)
         if s:
             note = ('observer: model %.1f%% EV %+.1f%% — NBA-trained extrapolation, '
                     'NOT TT-calibrated | FanDuel: the button loads the exact selection - '
@@ -1150,7 +1162,7 @@ def board_bets():
                     'on the slip match the card before betting.')
         if not fd_stale:
             bets.append({
-                'key': f.get('key'),
+                'key': key,
                 'kind': 'parlay' if is_parlay else 'tt', 'league': 'tt',
                 'lgName': 'FanDuel: Table Tennis — TT Elite Series (Poland)',
                 'match': (f.get('fdName')
@@ -1181,7 +1193,7 @@ def board_bets():
                       if is_parlay else ''))
         if fst >= now - dt.timedelta(hours=2):
             bets.append({
-                'key': f.get('key') + '|draftkings',
+                'key': key + '|draftkings',
                 'kind': 'parlay' if is_parlay else 'tt', 'league': 'tt',
                 'lgName': 'DraftKings: Table Tennis — TT Elite Series (Poland)',
                 'match': (f.get('fdName')
@@ -1524,6 +1536,37 @@ def _card_path():
     if CARD_FILE is None:
         CARD_FILE = os.path.join(HIST, 'self_site_picks.json')
     return CARD_FILE
+
+
+def _tt_snapshot_path():
+    return os.path.join(HIST, 'tt_picks.json')
+
+
+def _tt_snapshot_load():
+    """{key: row} of every TT row we've seen, newest wins on key conflict."""
+    try:
+        return json.load(open(_tt_snapshot_path(), encoding='utf-8'))
+    except Exception:
+        return {}
+
+
+def _tt_snapshot_merge(live_rows):
+    """Merge the friend card's CURRENT tt bets into the snapshot, write it, and
+    return the merged {key: row}. Rows already in the snapshot are kept (so a
+    match that dropped off Roy's live card survives); new rows are added. Only
+    the friend's live rows are merged in — the snapshot is never shrunk here."""
+    snap = _tt_snapshot_load()
+    for f in live_rows:
+        key = f.get('key')
+        if not key:
+            continue
+        snap[key] = f
+    try:
+        with open(_tt_snapshot_path(), 'w', encoding='utf-8') as fh:
+            json.dump(snap, fh)
+    except Exception as e:
+        print('tt_snapshot write failed:', e)
+    return snap
 
 
 def _resolve_self_pick(lg, home, away, start_iso):
