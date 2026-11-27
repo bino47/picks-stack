@@ -1701,6 +1701,32 @@ def board_card():
                     'web': web, 'app': app,
                     'armed': True, 'why': 'self picks model', 'note': None,
                 })
+            # the desktop mints its own FanDuel flat addToBetslip slip
+            # (_fd_slip_links); relay it as the fanduel book row so FD buttons
+            # on the hosted board carry the real slip link, not a lobby stub.
+            fd_web = b.get('web') or b.get('app')
+            if fd_web:
+                bets.append({
+                    'key': '%s|fanduel' % (b.get('key'),),
+                    'kind': b.get('kind') or 'single',
+                    'league': lg, 'book': 'fanduel',
+                    'eventId': str(b.get('event_id') or ''),
+                    'start': start,
+                    'ga': ga, 'gb': gb,
+                    'match': b.get('match') or ('%s v %s' % (ga, gb)).strip(' v '),
+                    'fdName': b.get('match') or ('%s @ %s' % (gb, ga)).strip(' @ '),
+                    'lgName': {'nba': 'eBasketball H2H GG League',
+                               'fifa': 'eSoccer H2H',
+                               'esb': 'eSoccer H2H',
+                               'nfl': 'eFootball H2H'}.get(lg, ''),
+                    'market': b.get('market'), 'side': b.get('side'),
+                    'line': None, 'price': b.get('price'),
+                    'stake': float(b.get('stake') or 0),
+                    'ir': float(b.get('ev') or 0), 'pi': b.get('ens_p'),
+                    'legs': b.get('legs') or [],
+                    'web': fd_web, 'app': b.get('app') or fd_web,
+                    'armed': True, 'why': 'self picks model', 'note': None,
+                })
         return {'at': payload.get('at') or at, 'live': True, 'why': '',
                 'title': 'FanDuel board', 'checkedAt': at,
                 'partner': {
