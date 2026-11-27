@@ -1521,6 +1521,63 @@ def _card_path():
     return CARD_FILE
 
 
+def _resolve_self_pick(lg, home, away, start_iso):
+    """Resolve one self-site pick to its real book(s) + deep links.
+
+    Returns a list of (book, web, app) tuples, mirroring board_bets(). The
+    pick's ga/gb carry gamer tags ('Club (TAG)') and league maps to the sport id
+    the Entain books use (nba->119 eBasketball, fifa/esb->108 esoccer). BetMGM
+    and Borgata share event ids so one _mgm_event_path resolution serves both;
+    bet365 gets the live slug (esoccer) / NBA2K listing (basketball). A book
+    without a resolution still gets its LOBBY link (the pick stays placeable).
+    """
+    lg = str(lg or '').lower()
+    start_ts = _iso_ts(start_iso or '')
+    out = []
+    # BetMGM + Borgata (Entain NJ, shared ids)
+    if lg == 'nba':
+        sport_id, lobbies = 119, {
+            'betmgm': ('https://www.nj.betmgm.com/en/sports/ebasketball-119/betting/world-6/ebasketball-h2h-gg-league-108782',
+                       'https://sports.betmgm.com/en/sports/ebasketball-119/betting/world-6/ebasketball-h2h-gg-league-108782'),
+            'borgata': ('https://www.borgataonline.com/en/sports/ebasketball-119/betting/world-6/ebasketball-h2h-gg-league-108782',
+                        'https://sports.borgataonline.com/en/sports/ebasketball-119/betting/world-6/ebasketball-h2h-gg-league-108782'),
+        }
+        epath = _mgm_event_path(sport_id, home or '', away or '', start_ts)
+        for book, (wl, al) in lobbies.items():
+            if epath:
+                www = ('https://www.nj.betmgm.com/en/sports/' if book == 'betmgm'
+                       else 'https://www.borgataonline.com/en/sports/') + epath
+                app = ('https://sports.betmgm.com/en/sports/' if book == 'betmgm'
+                       else 'https://sports.borgataonline.com/en/sports/') + epath
+                out.append((book, www, app))
+            else:
+                out.append((book, wl, al))
+        # bet365 NBA2K listing (FRESH-only window handled by caller's start check)
+        out.append(('bet365', B365, B365 + B365_NBA2K))
+        return out
+    # esoccer (fifa / esb) -> sport 108
+    epath = _mgm_event_path(108, home or '', away or '', start_ts)
+    for book in ('betmgm', 'borgata'):
+        links = _mgm_links(epath, book) if epath else None
+        if links:
+            out.append((book, links[0], links[1]))
+        else:
+            lobby = ('esoccer-108',)
+            # unresolved -> lobby link (board keeps the row placeable)
+            www = ('https://www.nj.betmgm.com/en/sports/' if book == 'betmgm'
+                   else 'https://www.borgataonline.com/en/sports/') + 'esoccer-108'
+            app = ('https://sports.betmgm.com/en/sports/' if book == 'betmgm'
+                   else 'https://sports.borgataonline.com/en/sports/') + 'esoccer-108'
+            out.append((book, www, app))
+    # bet365 esoccer: live slug if resolved, else the H2H GG league page
+    slug = _bet365_slug(home or '', away or '')
+    if slug:
+        out.append(('bet365', B365 + slug, B365 + slug))
+    else:
+        out.append(('bet365', B365, B365 + B365_H2HGGL_LEAGUE))
+    return out
+
+
 def _split_side(market, side):
     """'Total'/'Under 105.9' -> (market_label, line, clean_side)."""
     m = re.match(r'^(Over|Under)\s+([0-9]+(?:\.[0-9]+)?)$', str(side or ''), re.I)
@@ -1564,25 +1621,30 @@ def board_card():
             ga = str(b.get('home') or '')
             gb = str(b.get('away') or '')
             lg = str(b.get('league') or 'nba').lower()
-            bets.append({
-                'key': b.get('key'), 'kind': b.get('kind') or 'single',
-                'league': lg, 'book': 'fanduel',
-                'eventId': str(b.get('event_id') or ''),
-                'start': b.get('start') or '',
-                'ga': ga, 'gb': gb,
-                'match': b.get('match') or ('%s v %s' % (ga, gb)).strip(' v '),
-                'fdName': b.get('match') or ('%s @ %s' % (gb, ga)).strip(' @ '),
-                'lgName': {'nba': 'eBasketball H2H · FanDuel',
-                           'fifa': 'eSoccer H2H · FanDuel',
-                           'nfl': 'eFootball H2H · FanDuel'}.get(lg, ''),
-                'market': b.get('market'), 'side': b.get('side'),
-                'line': None, 'price': b.get('price'),
-                'stake': float(b.get('stake') or 0),
-                'ir': float(b.get('ev') or 0), 'pi': b.get('ens_p'),
-                'legs': b.get('legs') or [],
-                'web': None, 'app': None,
-                'armed': True, 'why': 'self picks model', 'note': None,
-            })
+            start = b.get('start') or ''
+            # resolve the real book(s) + deep links (never hardcode fanduel/None)
+            for book, web, app in _resolve_self_pick(lg, ga, gb, start):
+                bets.append({
+                    'key': '%s|%s' % (b.get('key'), book),
+                    'kind': b.get('kind') or 'single',
+                    'league': lg, 'book': book,
+                    'eventId': str(b.get('event_id') or ''),
+                    'start': start,
+                    'ga': ga, 'gb': gb,
+                    'match': b.get('match') or ('%s v %s' % (ga, gb)).strip(' v '),
+                    'fdName': b.get('match') or ('%s @ %s' % (gb, ga)).strip(' @ '),
+                    'lgName': {'nba': 'eBasketball H2H GG League',
+                               'fifa': 'eSoccer H2H',
+                               'esb': 'eSoccer H2H',
+                               'nfl': 'eFootball H2H'}.get(lg, ''),
+                    'market': b.get('market'), 'side': b.get('side'),
+                    'line': None, 'price': b.get('price'),
+                    'stake': float(b.get('stake') or 0),
+                    'ir': float(b.get('ev') or 0), 'pi': b.get('ens_p'),
+                    'legs': b.get('legs') or [],
+                    'web': web, 'app': app,
+                    'armed': True, 'why': 'self picks model', 'note': None,
+                })
         return {'at': payload.get('at') or at, 'live': True, 'why': '',
                 'title': 'FanDuel board', 'checkedAt': at,
                 'partner': {
