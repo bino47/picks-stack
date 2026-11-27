@@ -1142,14 +1142,11 @@ def board_bets():
             fst = dt.datetime.fromisoformat((f.get('start') or '').replace('Z', '+00:00'))
         except Exception:
             continue
-        # FanDuel TT Elite props are IN-PLAY ONLY (no pre-match market) and a
-        # best-of-5 match runs ~15-25 min. Keep the row visible through the
-        # whole live window so the user can live-bet it — a 9-min grace dropped
-        # rows mid-match (user 2026-11-24: "you can only live bet the props so
-        # they disappear when I try to bet them"). 40 min covers the longest
-        # possible match + a comfortable margin for the FanDuel row.
+        # FanDuel TT Elite props are IN-PLAY ONLY (no pre-match market). Rows
+        # expire 10 min after start (user 2026-11-27: the old 40 min/2h windows
+        # left picks on the board far too long).
         now = dt.datetime.now(dt.timezone.utc)
-        fd_stale = fst < now - dt.timedelta(minutes=40)
+        fd_stale = fst < now - dt.timedelta(minutes=10)
         is_parlay = (f.get('kind') == 'parlay')
         s = None if is_parlay else tt_scored.get(key)
         if s:
@@ -1182,16 +1179,15 @@ def board_bets():
         # price/EV are FanDuel's (verify-flag note per the twin rule — never
         # clone a source price silently); grading settles off the SAME
         # friend-ledger result via the |draftkings twin key in graded_rows().
-        # DK twin gets a MUCH LONGER window (2h vs FD's 40 min): the user
-        # live-bets TT at DK and a row that drops mid-match means a bet they
-        # can no longer place (2026-11-27).
+        # DK twin uses the same 10-min-after-start window as the FD row
+        # (2026-11-27: rows were lingering too long).
         dk_note = ('DraftKings equivalent of the FanDuel pick: same TT Elite match — '
                    'open Table Tennis in the DK app/site and find this match. '
                    'VERIFY the odds on the DK slip: the price/EV shown are FanDuel\'s '
                    'and DK\'s line can differ.'
                    + (' DK parlays: build the same legs on one ticket (Parlay line).'
                       if is_parlay else ''))
-        if fst >= now - dt.timedelta(hours=2):
+        if fst >= now - dt.timedelta(minutes=10):
             bets.append({
                 'key': key + '|draftkings',
                 'kind': 'parlay' if is_parlay else 'tt', 'league': 'tt',
