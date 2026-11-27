@@ -1511,11 +1511,11 @@ def board_card():
         payload = json.load(open(_card_path(), encoding='utf-8'))
     except Exception as e:
         return {'at': at, 'live': False, 'why': 'no card pushed yet: %s' % e,
-                'title': 'FanDuel board',
+                'title': 'FanDuel board', 'checkedAt': at,
                 'partner': {'id': 'pipeline', 'name': 'The Model',
                             'bankroll': 0, 'fifaBankroll': 0, 'cap': 700},
                 'liveBankroll': {},
-                'settings': {}, 'bets': [], 'addAll': {'n': 0}}
+                'settings': {}, 'bets': []}
     bets = []
     for row in payload.get('rows') or []:
         lg = str(row.get('league') or 'nba').lower()
@@ -1525,6 +1525,11 @@ def board_card():
         ga = row.get('home_alias') or row.get('home') or ''
         gb = row.get('away_alias') or row.get('away') or ''
         fdn = '%s @ %s' % (row.get('away') or gb, row.get('home') or ga)
+        match = '%s v %s' % (ga, gb)
+        # league display label (front-end reads b.lgName before b.fdName)
+        lgName = {'nba': 'eBasketball H2H · FanDuel',
+                  'fifa': 'eSoccer H2H · FanDuel',
+                  'nfl': 'eFootball H2H · FanDuel'}.get(lg, '')
         for p in row.get('picks') or []:
             if not p.get('bet'):
                 continue  # only the +EV bets the model actually backs
@@ -1535,15 +1540,16 @@ def board_card():
                 if line is not None else '%s|%s|%s' % (row.get('event_id'), p.get('market'), side),
                 'kind': 'single', 'league': lg, 'book': 'fanduel',
                 'eventId': str(row.get('event_id')), 'start': start,
-                'ga': ga, 'gb': gb, 'fdName': fdn,
+                'ga': ga, 'gb': gb, 'match': match, 'fdName': fdn, 'lgName': lgName,
                 'market': label, 'side': side, 'line': line,
                 'price': _dec_to_am(p.get('price_dec')),
                 'stake': float(p.get('stake') or 0),
                 'ir': float(p.get('ev') or 0), 'pi': p.get('ens_p'),
+                'web': None, 'app': None, 'legs': [],
                 'armed': True, 'why': 'self model +EV', 'note': None,
             })
     return {'at': payload.get('at') or at, 'live': True, 'why': '',
-            'title': 'FanDuel board',
+            'title': 'FanDuel board', 'checkedAt': at,
             'partner': {
                 'id': 'pipeline', 'name': 'The Model',
                 'bankroll': float((payload.get('bankrolls') or {}).get('fanduel') or 0),
@@ -1551,7 +1557,7 @@ def board_card():
                 'cap': 700,
             },
             'liveBankroll': {},
-            'settings': {}, 'bets': bets, 'addAll': {'n': len(bets)}}
+            'settings': {}, 'bets': bets}
 
 
 def self_site_card_push(token, raw):
