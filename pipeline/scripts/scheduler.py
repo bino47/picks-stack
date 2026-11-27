@@ -1135,9 +1135,9 @@ def board_bets():
         # whole live window so the user can live-bet it — a 9-min grace dropped
         # rows mid-match (user 2026-11-24: "you can only live bet the props so
         # they disappear when I try to bet them"). 40 min covers the longest
-        # possible match + a comfortable margin.
-        if fst < dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=40):
-            continue  # well past the live window
+        # possible match + a comfortable margin for the FanDuel row.
+        now = dt.datetime.now(dt.timezone.utc)
+        fd_stale = fst < now - dt.timedelta(minutes=40)
         is_parlay = (f.get('kind') == 'parlay')
         s = None if is_parlay else tt_scored.get(f.get('key'))
         if s:
@@ -1148,20 +1148,21 @@ def board_bets():
         else:
             note = ('FanDuel: the button loads the exact selection(s) - check the odds '
                     'on the slip match the card before betting.')
-        bets.append({
-            'key': f.get('key'),
-            'kind': 'parlay' if is_parlay else 'tt', 'league': 'tt',
-            'lgName': 'FanDuel: Table Tennis — TT Elite Series (Poland)',
-            'match': (f.get('fdName')
-                      or ('%s v %s' % (f.get('ga') or '?', f.get('gb') or '?'))),
-            'ga': f.get('ga') or '', 'gb': f.get('gb') or '',
-            'market': f.get('market'), 'side': f.get('side'),
-            'price': f.get('price'), 'stake': f.get('stake'),
-            'start': f.get('start'), 'note': note,
-            'armed': bool(f.get('armed', True)), 'book': 'fanduel',
-            'line': (f.get('line') if f.get('line') is not None else ''),
-            'legs': f.get('legs') or [],
-            'web': f.get('web') or '', 'app': f.get('app') or f.get('web') or ''})
+        if not fd_stale:
+            bets.append({
+                'key': f.get('key'),
+                'kind': 'parlay' if is_parlay else 'tt', 'league': 'tt',
+                'lgName': 'FanDuel: Table Tennis — TT Elite Series (Poland)',
+                'match': (f.get('fdName')
+                          or ('%s v %s' % (f.get('ga') or '?', f.get('gb') or '?'))),
+                'ga': f.get('ga') or '', 'gb': f.get('gb') or '',
+                'market': f.get('market'), 'side': f.get('side'),
+                'price': f.get('price'), 'stake': f.get('stake'),
+                'start': f.get('start'), 'note': note,
+                'armed': bool(f.get('armed', True)), 'book': 'fanduel',
+                'line': (f.get('line') if f.get('line') is not None else ''),
+                'legs': f.get('legs') or [],
+                'web': f.get('web') or '', 'app': f.get('app') or f.get('web') or ''})
         # DraftKings twin (same TT Elite match — DK's TT menu is the deepest
         # of the US books). No deep-link resolver: DK's site/app is
         # bot-walled from datacenter IPs, so the button opens the DK lobby
@@ -1169,27 +1170,31 @@ def board_bets():
         # price/EV are FanDuel's (verify-flag note per the twin rule — never
         # clone a source price silently); grading settles off the SAME
         # friend-ledger result via the |draftkings twin key in graded_rows().
+        # DK twin gets a MUCH LONGER window (2h vs FD's 40 min): the user
+        # live-bets TT at DK and a row that drops mid-match means a bet they
+        # can no longer place (2026-11-27).
         dk_note = ('DraftKings equivalent of the FanDuel pick: same TT Elite match — '
                    'open Table Tennis in the DK app/site and find this match. '
                    'VERIFY the odds on the DK slip: the price/EV shown are FanDuel\'s '
                    'and DK\'s line can differ.'
                    + (' DK parlays: build the same legs on one ticket (Parlay line).'
                       if is_parlay else ''))
-        bets.append({
-            'key': f.get('key') + '|draftkings',
-            'kind': 'parlay' if is_parlay else 'tt', 'league': 'tt',
-            'lgName': 'DraftKings: Table Tennis — TT Elite Series (Poland)',
-            'match': (f.get('fdName')
-                      or ('%s v %s' % (f.get('ga') or '?', f.get('gb') or '?'))),
-            'ga': f.get('ga') or '', 'gb': f.get('gb') or '',
-            'market': f.get('market'), 'side': f.get('side'),
-            'price': f.get('price'), 'stake': f.get('stake'),
-            'start': f.get('start'), 'note': dk_note,
-            'armed': bool(f.get('armed', True)), 'book': 'draftkings',
-            'line': (f.get('line') if f.get('line') is not None else ''),
-            'legs': f.get('legs') or [],
-            'web': 'https://sportsbook.draftkings.com/',
-            'app': 'https://sportsbook.draftkings.com/'})
+        if fst >= now - dt.timedelta(hours=2):
+            bets.append({
+                'key': f.get('key') + '|draftkings',
+                'kind': 'parlay' if is_parlay else 'tt', 'league': 'tt',
+                'lgName': 'DraftKings: Table Tennis — TT Elite Series (Poland)',
+                'match': (f.get('fdName')
+                          or ('%s v %s' % (f.get('ga') or '?', f.get('gb') or '?'))),
+                'ga': f.get('ga') or '', 'gb': f.get('gb') or '',
+                'market': f.get('market'), 'side': f.get('side'),
+                'price': f.get('price'), 'stake': f.get('stake'),
+                'start': f.get('start'), 'note': dk_note,
+                'armed': bool(f.get('armed', True)), 'book': 'draftkings',
+                'line': (f.get('line') if f.get('line') is not None else ''),
+                'legs': f.get('legs') or [],
+                'web': 'https://sportsbook.draftkings.com/',
+                'app': 'https://sportsbook.draftkings.com/'})
     # best EV first so the top of the card is the brain's strongest conviction.
     # Notes without a parseable 'EV x%' (e.g. TT rows the observer never
     # scored) previously crashed this float(); park them at the bottom.
