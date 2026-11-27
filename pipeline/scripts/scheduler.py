@@ -1511,6 +1511,10 @@ def board_card():
         payload = json.load(open(_card_path(), encoding='utf-8'))
     except Exception as e:
         return {'at': at, 'live': False, 'why': 'no card pushed yet: %s' % e,
+                'title': 'FanDuel board',
+                'partner': {'id': 'pipeline', 'name': 'The Model',
+                            'bankroll': 0, 'fifaBankroll': 0, 'cap': 700},
+                'liveBankroll': {},
                 'settings': {}, 'bets': [], 'addAll': {'n': 0}}
     bets = []
     for row in payload.get('rows') or []:
@@ -1539,6 +1543,14 @@ def board_card():
                 'armed': True, 'why': 'self model +EV', 'note': None,
             })
     return {'at': payload.get('at') or at, 'live': True, 'why': '',
+            'title': 'FanDuel board',
+            'partner': {
+                'id': 'pipeline', 'name': 'The Model',
+                'bankroll': float((payload.get('bankrolls') or {}).get('fanduel') or 0),
+                'fifaBankroll': float((payload.get('bankrolls') or {}).get('betmgm') or 0),
+                'cap': 700,
+            },
+            'liveBankroll': {},
             'settings': {}, 'bets': bets, 'addAll': {'n': len(bets)}}
 
 
