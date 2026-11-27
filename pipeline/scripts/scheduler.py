@@ -36,6 +36,9 @@ LEDGER_FILES = {                      # remote path -> local path
     'pipeline/ledgers/esb_bb_paper_ledger.jsonl': os.path.join(HIST, 'esb_bb_paper_ledger.jsonl'),
     'pipeline/ledgers/fifa_board_ledger.jsonl':   os.path.join(HIST, 'fifa_board_ledger.jsonl'),
     'pipeline/ledgers/model_sb_ledger.jsonl':     os.path.join(HERE, 'model_sb_ledger.jsonl'),
+    # the desktop-pushed self-site card must survive redeploys too (else every
+    # pipeline restart wipes /var/data/self_site_picks.json and empties the board)
+    'pipeline/ledgers/self_site_picks.json':      os.path.join(HIST, 'self_site_picks.json'),
 }
 _last_pushed = {}
 
@@ -101,6 +104,41 @@ def _ledger_backup_loop():
                 _last_pushed[rpath] = raw
             except Exception as e:
                 print('ledger backup failed:', rpath, e)
+
+
+def _backup_one(rpath, lpath):
+    """Push one local file to the board-db branch (used by the 10-min loop AND
+    immediately by self_site_card_push so a push survives a restart before the
+    next loop tick). Returns True on success."""
+    if not GH_TOKEN:
+        return False
+    try:
+        if not (os.path.exists(lpath) and os.path.getsize(lpath)):
+            return False
+        with open(lpath, 'rb') as f:
+            raw = f.read()
+        if _last_pushed.get(rpath) == raw:
+            return True
+        sha = None
+        try:
+            st, d = _gh(f'/repos/{GH_REPO}/contents/{rpath}?ref={GH_BRANCH}')
+            sha = d.get('sha')
+            if base64.b64decode(d.get('content') or b'') == raw:
+                _last_pushed[rpath] = raw
+                return True
+        except Exception:
+            sha = None
+        body = {'message': 'pipeline ledger backup ' + rpath,
+                'content': base64.b64encode(raw).decode(),
+                'branch': GH_BRANCH}
+        if sha:
+            body['sha'] = sha
+        _gh(f'/repos/{GH_REPO}/contents/{rpath}', method='PUT', body=body)
+        _last_pushed[rpath] = raw
+        return True
+    except Exception as e:
+        print('backup_one failed:', rpath, e)
+        return False
 
 
 JOBS = [
@@ -1578,6 +1616,9 @@ def self_site_card_push(token, raw):
             fh.write(raw.decode('utf-8'))
     except Exception as e:
         return False, 'write failed: %s' % e
+    # snapshot immediately so a restart before the 10-min loop tick doesn't
+    # wipe the card (board-db branch is the only persistent store on free tier)
+    _backup_one('pipeline/ledgers/self_site_picks.json', _card_path())
     _last_ok['card_push'] = dt.datetime.utcnow().isoformat() + 'Z'
     return True, 'card stored: %d rows' % len(rows)
 
