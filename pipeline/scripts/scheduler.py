@@ -679,6 +679,14 @@ def board_bets():
     for o in rows:
         if o.get('status') != 'open':
             continue
+        # Quarter-point totals ("Over 5.75") are a split-handicap averaging
+        # artifact ("5.5,6.0" -> 5.75); MGM/Borgata/bet365 only carry whole or
+        # half-point totals, so a quarter-point total has no bettable line. Drop.
+        _mkt = (o.get('market') or '').strip()
+        if _mkt.lower().startswith('total'):
+            _mm = re.search(r'([\d.]+)\s*$', _mkt)
+            if _mm and abs(float(_mm.group(1)) % 0.5) > 1e-9:
+                continue
         # show games that haven't started yet, plus a ~9-min live grace so the
         # bet365 twin can still resolve the exact (in-play-only) esoccer game.
         # Stale picks past the grace expire, not display.
@@ -875,6 +883,22 @@ def board_bets():
                                            'listing — find the same match.')),
                 'armed': True, 'book': 'bet365', 'line': '', 'legs': [],
                 'web': tgt, 'app': tgt})
+        # FanDuel twin: OUR OWN ridge 2K pick at FanDuel's eBasketball lobby.
+        # No FD event resolver yet, so link the lobby and flag verify-odds;
+        # price/EV shown are the MGM line the ridge model priced against.
+        bets.append({
+            'key': base + '|fanduel', 'kind': 'nba', 'league': 'nba',
+            'lgName': 'FanDuel: Basketball > E-Basketball (eBasketball H2H GG) — find the match',
+            'match': '%s v %s' % (o.get('home'), o.get('away')),
+            'ga': o.get('home'), 'gb': o.get('away'),
+            'market': mkt, 'side': o.get('side'),
+            'price': o.get('price_am'), 'stake': o.get('stake'),
+            'start': o.get('start'),
+            'note': ('our ridge: model %.1f%% EV %+.1f%% vs the MGM line — FanDuel: '
+                     'VERIFY the odds on the slip before betting (price shown is the MGM line).'
+                     % (100 * (o.get('p_model') or 0), 100 * (o.get('ev') or 0))),
+            'armed': True, 'book': 'fanduel', 'line': '', 'legs': [],
+            'web': NBA_BOOK_LINKS['fanduel'], 'app': NBA_BOOK_APPS['fanduel']})
     # NBA: mirror ALL upcoming singles from the user's own board, with the
     # observer's verdict attached (armed = in the profitable >=64% band).
     # (friend card fetched once here: FD nba rows join it by key for exact
@@ -892,19 +916,7 @@ def board_bets():
         card = json.load(open(os.path.join(HIST, 'history', 'scored_card.json')))
     except Exception:
         card = {}
-    nba_cands = []
-    for c in card.get('card', []):
-        if c.get('league') != 'nba':
-            continue
-        # real game start parsed from the key prefix YYYY_MM_DDTHH_MM_SSSZ_...
-        m = re.match(r'^(\d{4})_(\d{2})_(\d{2})T(\d{2})_(\d{2})_(\d{2})', c.get('key') or '')
-        if not m:
-            continue
-        start = dt.datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)),
-                            int(m.group(4)), int(m.group(5)), tzinfo=dt.timezone.utc)
-        if start < dt.datetime.now(dt.timezone.utc):
-            continue
-        nba_cands.append((c, start))
+    nba_cands = []  # Roy's NBA (2K) mirror removed: 2K flows only from our own ridge model (BB section above, incl. its FanDuel twin).
     # collapse book mirrors: the Entain twins (betmgm/borgata) share a
     # platform and links -> keep the better price of the two. FanDuel gets
     # its OWN row: its prices differ and it has separate slip links, and a
