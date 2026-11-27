@@ -9,6 +9,8 @@ Jobs (running-flag guarded, never overlap):
 Web endpoints (for the local boards / any viewer to pull):
   GET /          status page
   GET /data      {esb_ledger, model_sb_ledger, kalshi state}
+  GET /card      the board card (converted self_site picks shape)
+  POST /card     desktop pushes its self_site_picks.json (?token=PIPE_CARD_TOKEN)
 """
 import json, os, re, subprocess, sys, threading, time, calendar, base64
 import datetime as dt
@@ -1465,7 +1467,128 @@ def graded_rows():
     return out
 
 
+# ---- self-site card (this host RELAYS the desktop's self_site_picks.json) ---
+# The desktop model produces history/self_site_picks.json. It POSTs it here
+# (POST /card?token=PIPE_CARD_TOKEN) and the board's CARD_SOURCE points at
+# GET /card: same shape the board UI already renders (key/kind/league/book/
+# eventId/start/ga/gb/market/side/price/stake). A stale card is better than an
+# empty one, so the file is only rewritten when the push parses.
+CARD_FILE = None  # resolved lazily against HIST
+
+
+def _card_path():
+    global CARD_FILE
+    if CARD_FILE is None:
+        CARD_FILE = os.path.join(HIST, 'self_site_picks.json')
+    return CARD_FILE
+
+
+def _split_side(market, side):
+    """'Total'/'Under 105.9' -> (market_label, line, clean_side)."""
+    m = re.match(r'^(Over|Under)\s+([0-9]+(?:\.[0-9]+)?)$', str(side or ''), re.I)
+    if m:
+        return 'Total', float(m.group(2)), m.group(1).capitalize() + ' ' + m.group(1)
+    sp = re.match(r'^(\S+)\s+(?:[+-][0-9]+(?:\.[0-9]+)?)$', str(side or ''))
+    if sp:
+        return 'Spread', float(str(side).split()[-1]), str(side)
+    return str(market or ''), None, str(side or '')
+
+
+def _dec_to_am(d):
+    try:
+        d = float(d)
+    except (TypeError, ValueError):
+        return None
+    if d <= 1.0:
+        return None
+    return int(round((d - 1) * 100)) if d >= 2 else int(round(-100.0 / (d - 1)))
+
+
+def board_card():
+    """Convert the pushed self_site payload into the board card shape."""
+    at = dt.datetime.utcnow().isoformat() + 'Z'
+    try:
+        payload = json.load(open(_card_path(), encoding='utf-8'))
+    except Exception as e:
+        return {'at': at, 'live': False, 'why': 'no card pushed yet: %s' % e,
+                'settings': {}, 'bets': [], 'addAll': {'n': 0}}
+    bets = []
+    for row in payload.get('rows') or []:
+        lg = str(row.get('league') or 'nba').lower()
+        ts = int(row.get('time') or 0)
+        start = dt.datetime.fromtimestamp(ts, dt.timezone.utc) \
+            .isoformat(timespec='minutes').replace('+00:00', 'Z') if ts else ''
+        ga = row.get('home_alias') or row.get('home') or ''
+        gb = row.get('away_alias') or row.get('away') or ''
+        fdn = '%s @ %s' % (row.get('away') or gb, row.get('home') or ga)
+        for p in row.get('picks') or []:
+            if not p.get('bet'):
+                continue  # only the +EV bets the model actually backs
+            label, line, _ = _split_side(p.get('market'), p.get('side'))
+            side = str(p.get('side') or '')
+            bets.append({
+                'key': '%s|%s|%s' % (row.get('event_id'), label, side.split()[-1])
+                if line is not None else '%s|%s|%s' % (row.get('event_id'), p.get('market'), side),
+                'kind': 'single', 'league': lg, 'book': 'fanduel',
+                'eventId': str(row.get('event_id')), 'start': start,
+                'ga': ga, 'gb': gb, 'fdName': fdn,
+                'market': label, 'side': side, 'line': line,
+                'price': _dec_to_am(p.get('price_dec')),
+                'stake': float(p.get('stake') or 0),
+                'ir': float(p.get('ev') or 0), 'pi': p.get('ens_p'),
+                'armed': True, 'why': 'self model +EV', 'note': None,
+            })
+    return {'at': payload.get('at') or at, 'live': True, 'why': '',
+            'settings': {}, 'bets': bets, 'addAll': {'n': len(bets)}}
+
+
+def self_site_card_push(token, raw):
+    """Store a pushed card payload (raw bytes). Returns (ok, message)."""
+    want = (os.environ.get('PIPE_CARD_TOKEN') or '').strip()
+    if not want:
+        return False, 'PIPE_CARD_TOKEN not set on host'
+    if (token or '').strip() != want:
+        return False, 'bad token'
+    try:
+        payload = json.loads(raw.decode('utf-8'))
+        rows = payload.get('rows') or []
+        assert isinstance(rows, list) and rows, 'payload has no rows[]'
+    except Exception as e:
+        return False, 'bad payload: %s' % e
+    try:
+        with open(_card_path(), 'w', encoding='utf-8') as fh:
+            fh.write(raw.decode('utf-8'))
+    except Exception as e:
+        return False, 'write failed: %s' % e
+    _last_ok['card_push'] = dt.datetime.utcnow().isoformat() + 'Z'
+    return True, 'card stored: %d rows' % len(rows)
+
+
 class H(BaseHTTPRequestHandler):
+    def do_POST(self):
+        if self.path.split('?')[0] == '/card':
+            qs = {}
+            if '?' in self.path:
+                for part in self.path.split('?', 1)[1].split('&'):
+                    if '=' in part:
+                        k, v = part.split('=', 1)
+                        qs[k] = urllib.parse.unquote(v)
+            try:
+                n = int(self.headers.get('Content-Length') or 0)
+                raw = self.rfile.read(n) if n else b''
+            except Exception:
+                raw = b''
+            ok, msg = self_site_card_push(qs.get('token', ''), raw)
+            body = json.dumps({'ok': ok, 'message': msg}).encode()
+            self.send_response(200 if ok else 403)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_response(404); self.end_headers(); return
+
     def do_GET(self):
         if self.path == '/data':
             body = json.dumps({
@@ -1505,6 +1628,11 @@ class H(BaseHTTPRequestHandler):
             self.send_header('Cache-Control', 'no-store')
         elif self.path == '/graded':
             body = json.dumps(graded_rows()).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Cache-Control', 'no-store')
+        elif self.path == '/card':
+            body = json.dumps(board_card()).encode()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Cache-Control', 'no-store')
