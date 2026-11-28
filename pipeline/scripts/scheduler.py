@@ -1855,7 +1855,17 @@ class H(BaseHTTPRequestHandler):
             # board. Serve the converted pushed card when one exists; fall
             # back to the legacy sims builder otherwise.
             card = board_card() or {}
-            bets = card.get('bets') or []
+            bets = list(card.get('bets') or [])
+            if bets:
+                # TT (table tennis) rows live only in board_bets()' friend-source
+                # mirror — the pushed self-site card has no TT. Merge them so
+                # TT doesn't disappear when the push card takes over.
+                try:
+                    lr_bets, _lrp = board_bets()
+                    bets = bets + [b for b in lr_bets
+                                   if (b.get('league') or '').lower() == 'tt']
+                except Exception:
+                    pass
             if bets:
                 partner = card.get('partner') or {
                     'id': 'model', 'name': 'The Model', 'bankroll': 0,
