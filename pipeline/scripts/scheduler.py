@@ -1849,27 +1849,51 @@ class H(BaseHTTPRequestHandler):
             self.send_header('Content-Type', 'application/json')
             self.send_header('Cache-Control', 'no-store')
         elif self.path == '/board':
-            bets, partner = board_bets()
-            body = json.dumps({'at': dt.datetime.utcnow().isoformat() + 'Z',
-                               'live': True, 'why': '', 'title': 'Picks board — The Model',
-                               'checkedAt': dt.datetime.utcnow().isoformat() + 'Z',
-                               'partner': partner, 'model': partner,
-                               'partners': [partner], 'liveBankroll': {},
-                               # Sims tab feeds: model paper ledgers (graded +
-                               # open rows) for the board's Sims tab. Open
-                               # rows are enriched with BetMGM/Borgata slip
-                               # links (Entain resolver; bet365-only leagues
-                               # carry none).
-                               'esb_ledger': _enrich_sims(
-                                   read_tail(os.path.join(HIST, 'esb_paper_ledger.jsonl'), 400), 108,
-                                   lambda o: o.get('home'), lambda o: o.get('away'),
-                                   lambda o: int(o.get('time') or 0)),
-                               'model_sb_ledger': _enrich_sims(
-                                   read_tail(os.path.join(HERE, 'model_sb_ledger.jsonl'), 400), 119,
-                                   lambda o: (o.get('match') or ' v ').split(' v ')[0],
-                                   lambda o: (o.get('match') or ' v ').split(' v ')[-1],
-                                   lambda o: _iso_ts(o.get('start'))),
-                               'bets': bets}).encode()
+            # 2026-11-28: the hosted board's CARD_SOURCE is THIS endpoint, and
+            # board_bets() only served the sims ledgers — the pushed self-site
+            # card (2K totals, FD slips) went to /card and never reached the
+            # board. Serve the converted pushed card when one exists; fall
+            # back to the legacy sims builder otherwise.
+            card = board_card() or {}
+            bets = card.get('bets') or []
+            if bets:
+                partner = card.get('partner') or {
+                    'id': 'model', 'name': 'The Model', 'bankroll': 0,
+                    'fifaBankroll': 0, 'nflBankroll': 0, 'cap': 700}
+                body = json.dumps({'at': card.get('at') or dt.datetime.utcnow().isoformat() + 'Z',
+                                   'live': True, 'why': card.get('why') or '',
+                                   'title': 'Picks board — The Model',
+                                   'checkedAt': dt.datetime.utcnow().isoformat() + 'Z',
+                                   'partner': partner, 'model': partner,
+                                   'partners': [partner],
+                                   'liveBankroll': card.get('liveBankroll') or {},
+                                   'esb_ledger': _enrich_sims(
+                                       read_tail(os.path.join(HIST, 'esb_paper_ledger.jsonl'), 400), 108,
+                                       lambda o: o.get('home'), lambda o: o.get('away'),
+                                       lambda o: int(o.get('time') or 0)),
+                                   'model_sb_ledger': _enrich_sims(
+                                       read_tail(os.path.join(HERE, 'model_sb_ledger.jsonl'), 400), 119,
+                                       lambda o: (o.get('match') or ' v ').split(' v ')[0],
+                                       lambda o: (o.get('match') or ' v ').split(' v ')[-1],
+                                       lambda o: _iso_ts(o.get('start'))),
+                                   'bets': bets}).encode()
+            else:
+                bets_lr, partner = board_bets()
+                body = json.dumps({'at': dt.datetime.utcnow().isoformat() + 'Z',
+                                   'live': True, 'why': '', 'title': 'Picks board — The Model',
+                                   'checkedAt': dt.datetime.utcnow().isoformat() + 'Z',
+                                   'partner': partner, 'model': partner,
+                                   'partners': [partner], 'liveBankroll': {},
+                                   'esb_ledger': _enrich_sims(
+                                       read_tail(os.path.join(HIST, 'esb_paper_ledger.jsonl'), 400), 108,
+                                       lambda o: o.get('home'), lambda o: o.get('away'),
+                                       lambda o: int(o.get('time') or 0)),
+                                   'model_sb_ledger': _enrich_sims(
+                                       read_tail(os.path.join(HERE, 'model_sb_ledger.jsonl'), 400), 119,
+                                       lambda o: (o.get('match') or ' v ').split(' v ')[0],
+                                       lambda o: (o.get('match') or ' v ').split(' v ')[-1],
+                                       lambda o: _iso_ts(o.get('start'))),
+                                   'bets': bets_lr}).encode()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Cache-Control', 'no-store')
