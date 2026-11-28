@@ -174,13 +174,10 @@ def init_db():
       user_id INTEGER PRIMARY KEY, payload TEXT NOT NULL);
     """)
     c.commit()
-    # HARD RESET on every boot: the host idles/wakes (free tier) and each wake is a
-    # fresh session — clear all placed bets so the board starts clean (user request).
-    n = c.execute("SELECT COUNT(*) FROM placements").fetchone()[0]
-    if n:
-        c.execute("DELETE FROM placements")
-        c.commit()
-        print(f'boot reset: cleared {n} placement(s)')
+    # Placements PERSIST across boots now — the GitHub board-db backup/restore
+    # (backup_restore) restores them on a fresh /var/data, so a placed/skipped bet
+    # stays marked and doesn't re-surface as a fresh actionable bet when the
+    # free-tier host idles and wakes.
     c.close()
 
 

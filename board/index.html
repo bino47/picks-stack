@@ -355,9 +355,11 @@ function modelTag(b){
 function appHref(b){
   var u = b.app || "";
   if (!u || u.indexOf("https://") !== 0) return u;
-  var mg = b.book === "betmgm", bga = b.book === "borgata";
+  var mg = b.book === "betmgm", bga = b.book === "borgata", fd = b.book === "fanduel";
   if (/Android/i.test(navigator.userAgent)) {
-    var pkg = mg ? "com.playmgm.nj.sports" : (bga ? "com.borgata.nj.sports" : "");
+    var pkg = mg ? "com.playmgm.nj.sports"
+            : (bga ? "com.borgata.nj.sports"
+              : (fd ? "com.fanduel.sportsbook" : ""));
     if (!pkg) return u;
     return "intent://" + u.slice(8) + "#Intent;scheme=https;package=" + pkg
          + ";S.browser_fallback_url=" + encodeURIComponent(u) + ";end";
@@ -369,6 +371,13 @@ function appHref(b){
   }
   return u;
 }
+
+// App buttons open a NEW tab everywhere EXCEPT iOS: on iOS Safari a
+// target="_blank" link opens a separate tab first, which suppresses the
+// universal-link handoff to the installed app; same-tab fires the app.
+var IS_IOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+function appTarget(){ return IS_IOS ? '' : ' target="_blank" rel="noopener"'; }
+
 
 function betCard(b){
   var k = esc(b.key), st = mins(b.start), ed = EDIT[b.key] || {};
@@ -390,7 +399,7 @@ function betCard(b){
   if (!on) h += "<div class=\"why\">Not placeable right now: " + esc(b.why || DATA.why || "board not live") + "</div>";
   if (b.note) h += "<div class=\"why\">" + esc(b.note) + "</div>";
   h += "<div class=\"row\">"
-    + (on && b.app ? "<a class=\"btn " + bcls + "\" href=\"" + esc(appHref(b)) + "\">" + bk + " app</a>" : "<span class=\"btn " + bcls + "\" disabled>" + bk + " app</span>")
+    + (on && b.app ? "<a class=\"btn " + bcls + "\" href=\"" + esc(appHref(b)) + "\"" + appTarget() + ">" + bk + " app</a>" : "<span class=\"btn " + bcls + "\" disabled>" + bk + " app</span>")
     + (on && b.web ? "<a class=\"btn\" href=\"" + esc(b.web) + "\" target=\"_blank\" rel=\"noopener\">Browser</a>" : "<span class=\"btn\" disabled>Browser</span>")
     + "</div>";
   if (!OPEN[b.key]) {
@@ -431,7 +440,7 @@ function parlayCard(b){
   if (!on) h += "<div class=\"why\">Not placeable right now: " + esc(b.why || DATA.why || "board not live") + "</div>";
   h += "<div class=\"hint\">The button loads all " + n + " legs. In the " + bk + " slip put <b>" + esc(usd(stake(b))) + " on the Parlay line</b> (not on the straight bets), check every leg is there, and check the parlay odds are about <b>" + esc(am(b.price)) + "</b>.</div>"
     + "<div class=\"row\">"
-    + (on && b.app ? "<a class=\"btn " + bcls + "\" href=\"" + esc(appHref(b)) + "\">" + bk + " app</a>" : "<span class=\"btn " + bcls + "\" disabled>" + bk + " app</span>")
+    + (on && b.app ? "<a class=\"btn " + bcls + "\" href=\"" + esc(appHref(b)) + "\"" + appTarget() + ">" + bk + " app</a>" : "<span class=\"btn " + bcls + "\" disabled>" + bk + " app</span>")
     + (on && b.web ? "<a class=\"btn\" href=\"" + esc(b.web) + "\" target=\"_blank\" rel=\"noopener\">Browser</a>" : "<span class=\"btn\" disabled>Browser</span>")
     + "</div>";
   if (!OPEN[b.key]) {
@@ -506,7 +515,7 @@ function renderBets(){
     + "<div class=\"hint\" style=\"margin-top:4px\">Install the free <b>ntfy</b> app (App Store / Google Play), tap <b>+</b>, and subscribe to this topic:</div>"
     + "<div style=\"margin:8px 0;font:600 15px ui-monospace,Menlo,Consolas,monospace;user-select:all;word-break:break-all\">" + esc(d.alerts) + "</div>"
     + "<div class=\"hint\">New bets arrive bundled in one ping, a few minutes apart at most; tap it to open this board. <a href=\"#\" data-act=\"hidetip\" data-k=\"" + esc(d.alerts) + "\">Hide this</a></div></div>";
-  if (d.addAll && d.live) h += "<div class=\"all\"><a class=\"btn fd sm\" href=\"" + esc(d.addAll.app) + "\">Add all " + d.addAll.n + " (app)</a>"
+  if (d.addAll && d.live) h += "<div class=\"all\"><a class=\"btn fd sm\" href=\"" + esc(d.addAll.app) + "\"" + appTarget() + ">Add all " + d.addAll.n + " (app)</a>"
     + "<a class=\"btn sm\" href=\"" + esc(d.addAll.web) + "\" target=\"_blank\" rel=\"noopener\">browser</a><span>Keep them as singles, one stake each.</span></div>";
   var counts = {}, total = picks.length;
   picks.forEach(function(b){ var k = b.book || "fanduel"; counts[k] = (counts[k] || 0) + 1; });
@@ -635,7 +644,7 @@ function simSlip(s){
   var mg = s.book === "betmgm";
   return "<div class=\"item\">"+simLeft(s.x)
     +"<div class=\"r slbtns\">"
-    +(s.L.app?"<a class=\"btn sm"+(mg?" mg":" bga")+"\" href=\""+esc(appHref({book:s.book,app:s.L.app}))+"\">App</a>":"")
+    +(s.L.app?"<a class=\"btn sm"+(mg?" mg":" bga")+"\" href=\""+esc(appHref({book:s.book,app:s.L.app}))+"\""+appTarget()+">App</a>":"")
     +(s.L.web?"<a class=\"btn sm\" href=\""+esc(s.L.web)+"\" target=\"_blank\" rel=\"noopener\">Browser</a>":"")
     +"</div></div>";
 }
@@ -690,7 +699,7 @@ function renderSims(){
       var btns="";
       ["betmgm","borgata"].forEach(function(b){ var L=(x.lk||{})[b]; if(L&&L.web){
         btns+="<a class=\"btn sm"+(b==="betmgm"?" mg":" bga")+"\" href=\""+esc(L.web)+"\" target=\"_blank\" rel=\"noopener\">"+(b==="betmgm"?"MGM":"Borgata")+"</a>";
-        if(L.app) btns+="<a class=\"btn sm"+(b==="betmgm"?" mg":" bga")+"\" href=\""+esc(appHref({book:b,app:L.app}))+"\">App</a>";
+        if(L.app) btns+="<a class=\"btn sm"+(b==="betmgm"?" mg":" bga")+"\" href=\""+esc(appHref({book:b,app:L.app}))+"\""+appTarget()+">App</a>";
       } });
       return "<div class=\"item\">"+simLeft(x)+(btns?"<div class=\"r slbtns\">"+btns+"</div>":"")+"</div>";
     }).join("")+"</div>";
