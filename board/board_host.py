@@ -634,21 +634,21 @@ class H(BaseHTTPRequestHandler):
             self._redirect('/login', cookies=['pbsession=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax'])
             return
         if not user:
+            if path == '/health':
+                # public liveness probe: what the board's card feed is serving
+                card = fetch_card()
+                bets = card.get('bets') or []
+                tots = [b for b in bets if 'total' in str(b.get('market') or '').lower()
+                        and str(b.get('league') or '').lower() in ('nba', '2k')]
+                self._send(200, json.dumps({
+                    'card_at': card.get('at') or card.get('checkedAt'),
+                    'live': card.get('live'), 'why': card.get('why'),
+                    'bets': len(bets), 'nba_totals': len(tots),
+                    'fd_slips': sum(1 for b in bets if 'marketId=' in str(b.get('web') or '')),
+                    'sample_totals': [((b.get('side') or '') + '|' + str(b.get('book'))) for b in tots[:8]],
+                }).encode(), 'application/json')
+                return
             self._redirect('/login')
-            return
-        if path == '/health':
-            # public liveness probe: what the board's card feed is serving
-            card = fetch_card()
-            bets = card.get('bets') or []
-            tots = [b for b in bets if 'total' in str(b.get('market') or '').lower()
-                    and str(b.get('league') or '').lower() in ('nba', '2k')]
-            self._send(200, json.dumps({
-                'card_at': card.get('at') or card.get('checkedAt'),
-                'live': card.get('live'), 'why': card.get('why'),
-                'bets': len(bets), 'nba_totals': len(tots),
-                'fd_slips': sum(1 for b in bets if 'marketId=' in str(b.get('web') or '')),
-                'sample_totals': [((b.get('side') or '') + '|' + str(b.get('book'))) for b in tots[:8]],
-            }).encode(), 'application/json')
             return
         if path == '/' or path == '/index.html':
             try:
