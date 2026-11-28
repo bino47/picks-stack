@@ -1611,21 +1611,23 @@ def _resolve_self_pick(lg, home, away, start_iso):
         # bet365 NBA2K listing (FRESH-only window handled by caller's start check)
         out.append(('bet365', B365, B365 + B365_NBA2K))
         return out
-    # esoccer (fifa / esb) -> sport 108
-    epath = _mgm_event_path(108, home or '', away or '', start_ts)
-    for book in ('betmgm', 'borgata'):
-        links = _mgm_links(epath, book) if epath else None
-        if links:
-            out.append((book, links[0], links[1]))
-        else:
-            lobby = ('esoccer-108',)
-            # unresolved -> lobby link (board keeps the row placeable)
-            www = ('https://www.nj.betmgm.com/en/sports/' if book == 'betmgm'
-                   else 'https://www.borgataonline.com/en/sports/') + 'esoccer-108'
-            app = ('https://sports.betmgm.com/en/sports/' if book == 'betmgm'
-                   else 'https://sports.borgataonline.com/en/sports/') + 'esoccer-108'
-            out.append((book, www, app))
-    # bet365 esoccer: live slug if resolved, else the H2H GG league page
+    # esoccer: ESB (battle8/volta6) lives on the Entain books (sport 108); the
+    # FanDuel H2H GG ('fifa') league is NOT carried by BetMGM/Borgata — a
+    # different player pool — so only map ESB there. bet365 carries BOTH.
+    if lg == 'esb':
+        epath = _mgm_event_path(108, home or '', away or '', start_ts)
+        for book in ('betmgm', 'borgata'):
+            links = _mgm_links(epath, book) if epath else None
+            if links:
+                out.append((book, links[0], links[1]))
+            else:
+                # unresolved -> lobby link (board keeps the row placeable)
+                www = ('https://www.nj.betmgm.com/en/sports/' if book == 'betmgm'
+                       else 'https://www.borgataonline.com/en/sports/') + 'esoccer-108'
+                app = ('https://sports.betmgm.com/en/sports/' if book == 'betmgm'
+                       else 'https://sports.borgataonline.com/en/sports/') + 'esoccer-108'
+                out.append((book, www, app))
+    # bet365 esoccer (both fifa + esb): live slug if resolved, else H2H GG lobby
     slug = _bet365_slug(home or '', away or '')
     if slug:
         out.append(('bet365', B365 + slug, B365 + slug))
